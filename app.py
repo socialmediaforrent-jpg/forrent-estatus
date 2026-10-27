@@ -11,7 +11,10 @@ REG=os.path.join(DATA_DIR,'registro.json') if REMOTE else '/workspace/forrent/se
 CFG=os.path.join(DATA_DIR,'config.json') if REMOTE else '/workspace/forrent/seguimiento_tg/config.json'
 TOK=os.path.join(_D,'tokens.json'); RESP=os.path.join(_D,'respuestas.json'); INMP=os.path.join(_D,'inmuebles_cache.json'); PORT=int(os.environ.get('PORT',18790))
 LOCK=threading.Lock()
-ESTATUS=["No contactado","No responde","Contactado","Visita agendada","Visita realizada","En oferta o negociación","Reserva o firma","Busca otra opción","Cerrado sin negocio"]
+ESTATUS=["No contactado","No responde","Contactado","Visita agendada","Visita realizada","En oferta o negociación","Reserva agendada","Reserva firmada","Busca otra opción","Cerrado sin negocio"]
+COLOR={"Sin estatus":("#d1d5db","#374151"),"No contactado":("#b45454","#fff"),"No responde":("#ef1c1c","#fff"),"Contactado":("#d6b656","#3a2c00"),"Visita agendada":("#ffd400","#2b2200"),"Visita realizada":("#5f9e6e","#fff"),"En oferta o negociación":("#16c60c","#062b00"),"Reserva agendada":("#5b7fb0","#fff"),"Reserva firmada":("#0a6cff","#fff"),"Busca otra opción":("#6b7280","#fff"),"Cerrado sin negocio":("#374151","#fff")}
+def est_css(): return ''.join(f'.e{i}{{background:{b}!important;color:{t}!important;border-color:{b}!important}}.b{i}{{border-color:{b}!important}}' for i,(b,t) in enumerate(COLOR.values()))
+ECLS={k:i for i,k in enumerate(COLOR)}
 INTERES=["Con interés","Sin interés"]
 MOTIVOS=["Inmueble no disponible","Propietario no autoriza visitas","Cliente no interesado","Descartado","Otro"]
 SIT_OBLIG={"Contactado":"¿Qué espera el cliente? (obligatorio)","Busca otra opción":"¿Qué busca? (obligatorio)","Cerrado sin negocio":"Detalle del motivo (obligatorio)"}
@@ -132,6 +135,13 @@ def merge_resp(base,new):
     return out
 def _wj(path,obj):
     tmp=path+'.tmp'; json.dump(obj,open(tmp,'w'),ensure_ascii=False,indent=1); os.replace(tmp,path)
+def mig(r):
+    for v in r.values():
+        if isinstance(v,dict):
+            if v.get('estatus')=='Reserva o firma': v['estatus']='Reserva agendada'
+            for h in v.get('historial',[]) or []:
+                if h.get('estatus')=='Reserva o firma': h['estatus']='Reserva agendada'
+    return r
 def fecha(s):
     try: d=datetime.datetime.fromisoformat(s); return d.strftime('%d/%m/%Y')
     except Exception: return ''
@@ -146,16 +156,16 @@ h2{font-size:17px;margin:22px 4px 4px;color:#111;border-bottom:2px solid #E76108
 JS="""const SO={"Contactado":"¿Qué espera el cliente? (obligatorio)","Busca otra opción":"¿Qué busca? (obligatorio)","Cerrado sin negocio":"Detalle del motivo (obligatorio)"};
 function fv(s){const f=s.form,v=s.value;const sh=(c,on)=>{const x=f.querySelector(c);x.style.display=on?'block':'none';x.querySelectorAll('input,select').forEach(i=>i.required=on)};
 sh('.x-fecha',v=='Visita agendada');sh('.x-int',v=='Visita realizada');sh('.x-monto',v=='En oferta o negociación');sh('.x-mot',v=='Cerrado sin negocio');
-const t=f.querySelector('textarea');t.required=!!SO[v];t.placeholder=SO[v]||'Situación del cliente (opcional)…'}
+s.className=(window.EC&&EC[v]!=null)?'e'+EC[v]:'';const t=f.querySelector('textarea');t.required=!!SO[v];t.placeholder=SO[v]||'Situación del cliente (opcional)…'}
 async function g(f,id){const d=new FormData(f);const b={id:id};['estatus','fecha_visita','interes','monto','motivo','situacion'].forEach(k=>b[k]=d.get(k)||'');
 const m=f.querySelector('.msg');m.style.color='';m.textContent='Guardando…';const r=await fetch(location.pathname+'/guardar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
 const j=await r.json().catch(()=>({}));if(r.ok){m.textContent='✔ Guardado';f.closest('.card').classList.add('ok')}else{m.style.color='#c00';m.textContent=j.error||'Error al guardar'}return false}
 document.querySelectorAll('select[name=estatus]').forEach(fv);"""
 def page(title,sub,body):
-    return f"<!doctype html><html lang=es><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sistema de Seguimiento de Cliente · For Rent · {html.escape(title)}</title><style>{CSS}</style><header><img src=/logo.jpg alt='For Rent Grupo Inmobiliario'><h1 class=tt>Sistema de Seguimiento de Cliente</h1><p>{sub}</p></header><main>{body}</main><script>{JS}</script></html>"
+    return f"<!doctype html><html lang=es><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sistema de Seguimiento de Cliente · For Rent · {html.escape(title)}</title><style>{CSS}{est_css()}</style><script>var EC={json.dumps(ECLS,ensure_ascii=False)}</script><header><img src=/logo.jpg alt='For Rent Grupo Inmobiliario'><h1 class=tt>Sistema de Seguimiento de Cliente</h1><p>{sub}</p></header><main>{body}</main><script>{JS}</script></html>"
 def card(v,resp):
     e=html.escape; t,cod=inmueble(v); r=resp.get(v['contact_id'],{})
-    opts=''.join(f"<option{' selected' if r.get('estatus')==s else ''}>{s}</option>" for s in ESTATUS)
+    opts=''.join(f"<option class=e{ECLS[s]}{' selected' if r.get('estatus')==s else ''}>{s}</option>" for s in ESTATUS)
     tel=f" · 📞 {e(v['telefono'])}" if v.get('telefono') else ''
     fa=fecha(v.get('asignado_at')); 
     return f"""<div class="card{' ok' if r else ''}"><div class=n>{e(v.get('nombre') or 'Cliente')}</div>
@@ -183,7 +193,7 @@ class H(BaseHTTPRequestHandler):
             with LOCK: return self.send(200,json.dumps(load(RESP,{}),ensure_ascii=False),'application/json')
         if self.path=='/logo.jpg':
             b=open(os.path.join(BASE,'logo.jpg'),'rb').read(); self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Cache-Control','max-age=86400'); self.end_headers(); return self.wfile.write(b)
-        p,c,t,inv=self.ctx(); resp=load(RESP,{})
+        p,c,t,inv=self.ctx(); resp=mig(load(RESP,{}))
         if len(p)==3 and p[1]=='a' and p[2] in inv:
             a=inv[p[2]]; l=c.get(a,[])
             return self.send(200,page(a,f"Hola, {html.escape(a.split()[0])}. Tienes {len(l)} cliente(s) sin estatus. Cuéntanos la situación de cada uno.",''.join(card(v,resp) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>'))

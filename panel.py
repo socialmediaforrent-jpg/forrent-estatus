@@ -1,11 +1,12 @@
 """Panel admin de José (solo lectura)."""
 import json, html
-from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS
+from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS, ECLS, mig
 TGMAP={'CONTACTADO':'Contactado','INTERESADO':'Contactado','NO RESPONDE':'No responde','VISITA AGENDADA':'Visita agendada',
  'VISITA REALIZADA':'Visita realizada','VISITA CONCRETADA':'Visita realizada','OFERTA':'En oferta o negociación','EN OFERTA':'En oferta o negociación',
- 'ACEPTADA':'Reserva o firma','RESERVA':'Reserva o firma','FIRMADO':'Reserva o firma','BUSCANDO OTRA PROPIEDAD':'Busca otra opción',
+ 'ACEPTADA':'Reserva agendada','RESERVA':'Reserva agendada','RESERVA AGENDADA':'Reserva agendada','FIRMADO':'Reserva firmada','FIRMADA':'Reserva firmada','BUSCANDO OTRA PROPIEDAD':'Busca otra opción',
  'NO INTERESADO':'Cerrado sin negocio','CERRADO':'Cerrado sin negocio','PERDIDO':'Cerrado sin negocio'}
 def datos(resp):
+    resp=mig(resp)
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{}); ex=set(cf.get('excluir_contactos',[]))
     exa={norm(a) for a in cf.get('excluir_asesores',[])}-PAUSA
     out=[]
@@ -30,22 +31,22 @@ th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}tr.as{cursor:poin
 .pz{background:#fde68a;color:#78350f;border-radius:6px;padding:1px 6px;font-size:11px;margin-left:4px}.est{display:inline-block;border-radius:6px;padding:2px 8px;font-size:12px;background:#E76108;color:#fff}
 .est.no{background:#e5e7eb;color:#333}.cl{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:10px}
 .c{background:#fff;border-radius:12px;padding:12px;border-left:5px solid #E76108;box-shadow:0 1px 5px rgba(0,0,0,.07);font-size:14px}.c.no{border-left-color:#ccc}
-.m{color:#666;font-size:12px}.cod{background:#111;color:#fff;border-radius:5px;padding:1px 6px;font-size:11px}details{font-size:12px;color:#555;margin-top:6px}h2{font-size:17px;margin:20px 0 6px}"""
+.m{color:#666;font-size:12px}.cod{background:#111;color:#fff;border-radius:5px;padding:1px 6px;font-size:11px}details{font-size:12px;color:#555;margin-top:6px}h2{font-size:17px;margin:20px 0 6px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}.k.on{outline:3px solid #111}"""
 JS=r"""
-const E=__EST__,ALL=__DATA__,D=ALL.filter(d=>!d.cer);let fe='',fa='',q='',sk='rank',sd=1;const $=s=>document.querySelector(s);
+const E=__EST__,ec=e=>' e'+EC[e],bc=e=>' b'+EC[e],ALL=__DATA__,D=ALL.filter(d=>!d.cer);let fe='',fa='',q='',sk='rank',sd=1;const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function kp(){const all=D.length,con=D.filter(d=>d.e!='Sin estatus').length;let h=`<div class="k big" onclick="se('')"><b>${Math.round(100*con/all)}%</b><span>con estatus (${con} de ${all})</span><div class=bar><i style="width:${100*con/all}%"></i></div></div>`;
-for(const e of ['Sin estatus',...E]){const n=D.filter(d=>d.e==e).length;h+=`<div class="k ${fe==e?'on':''}" onclick="se('${e}')"><b>${n}</b><span>${e}</span></div>`}$('#kp').innerHTML=h}
+for(const e of ['Sin estatus',...E]){const n=D.filter(d=>d.e==e).length;h+=`<div class="k${bc(e)} ${fe==e?'on':''}" style="border-top-width:8px" onclick="se('${e}')"><b>${n}</b><span><i class="dot${ec(e)}"></i>${e}</span></div>`}$('#kp').innerHTML=h}
 function se(e){fe=fe==e?'':e;$('#fe').value=fe;go()}
 function rows(){const m={};for(const d of ALL){const r=m[d.a]??={a:d.a,p:d.p,tot:0,ab:0,sin:0,con:0,ult:'',c:{}};r.tot++;d.ok?r.con++:r.sin++;if(!d.cer){r.ab++;r.c[d.e]=(r.c[d.e]||0)+1}if(d.at>r.ult)r.ult=d.at}
 const L=Object.values(m);L.forEach(r=>r.pct=Math.round(100*r.con/r.tot));L.sort((x,y)=>(y.pct-x.pct)||(x.sin-y.sin)||x.a.localeCompare(y.a));L.forEach((r,i)=>r.rank=i+1);if(sk!='rank')L.sort((x,y)=>(x[sk]>y[sk]?1:x[sk]<y[sk]?-1:0)*sd);return L}
 function srt(k){sd=sk==k?-sd:-1;sk=k;tab()}
 function tab(){let h='<tr>'+[['rank','#'],['a','Asesor'],['tot','Total'],['ab','Abiertos'],['con','Con estatus'],['sin','Sin estatus'],['pct','% seguimiento'],['ult','Última act. página']].map(([k,t])=>`<th onclick="srt('${k}')">${t}${sk==k?(sd>0?' ▲':' ▼'):''}</th>`).join('')+'<th>Estatus en página (abiertos)</th></tr>';
-for(const r of rows())h+=`<tr class="as ${fa==r.a?'sel':''} " onclick="sa('${esc(r.a)}')"><td><b style="font-size:16px;color:#E76108">${r.rank}</b></td><td style="white-space:nowrap"><b>${esc(r.a)}</b>${r.p?'<span class=pz>pausada de asignaciones</span>':''}</td><td>${r.tot}</td><td>${r.ab}</td><td>${r.con}</td><td>${r.sin}</td><td><div style="display:flex;align-items:center;gap:6px;min-width:150px"><div class=bar style="flex:1"><i style="width:${r.pct}%"></i></div><b>${r.pct}%</b></div></td><td>${r.ult?r.ult.slice(0,16).replace('T',' '):'—'}</td>`+'<td>'+Object.entries(r.c).map(([e,n])=>`<span class="chip ${e=='Sin estatus'?'no':''}">${esc(e)} ${n}</span>`).join(' ')+'</td></tr>';$('#tb').innerHTML=h}
+for(const r of rows())h+=`<tr class="as ${fa==r.a?'sel':''} " onclick="sa('${esc(r.a)}')"><td><b style="font-size:16px;color:#E76108">${r.rank}</b></td><td style="white-space:nowrap"><b>${esc(r.a)}</b>${r.p?'<span class=pz>pausada de asignaciones</span>':''}</td><td>${r.tot}</td><td>${r.ab}</td><td>${r.con}</td><td>${r.sin}</td><td><div style="display:flex;align-items:center;gap:6px;min-width:150px"><div class=bar style="flex:1"><i style="width:${r.pct}%"></i></div><b>${r.pct}%</b></div></td><td>${r.ult?r.ult.slice(0,16).replace('T',' '):'—'}</td>`+'<td>'+Object.entries(r.c).sort((x,y)=>EC[x[0]]-EC[y[0]]).map(([e,n])=>`<span class="chip${ec(e)}">${esc(e)} ${n}</span>`).join(' ')+'</td></tr>';$('#tb').innerHTML=h}
 function sa(a){fa=fa==a?'':a;$('#fa').value=fa;go();$('#cl').scrollIntoView({behavior:'smooth'})}
 function cl(){const L=D.filter(d=>(!fe||d.e==fe)&&(!fa||d.a==fa)&&(!q||d.n.toLowerCase().includes(q)));L.sort((x,y)=>x.a.localeCompare(y.a)||x.fs.localeCompare(y.fs));
 $('#ct').textContent=`${L.length} cliente(s)`+(fa?' · '+fa:'')+(fe?' · '+fe:'');
-$('#cl').innerHTML=L.map(d=>`<div class="c ${d.e=='Sin estatus'?'no':''}"><b>${esc(d.n)}</b> <span class="est ${d.e=='Sin estatus'?'no':''}">${esc(d.e)}${d.src=='tg'&&d.e!='Sin estatus'?' (Telegram)':''}</span>
+$('#cl').innerHTML=L.map(d=>`<div class="c${bc(d.e)}"><b>${esc(d.n)}</b> <span class="est${ec(d.e)}">${esc(d.e)}${d.src=='tg'&&d.e!='Sin estatus'?' (Telegram)':''}</span>
 <div class=m>${esc(d.a)}${d.p?' <span class=pz>pausada de asignaciones</span>':''}${d.tl?' · '+esc(d.tl):''}${d.f?' · Asignado '+d.f:''}</div>
 <div style="margin:6px 0">🏠 ${esc(d.inm)||(d.cod?'Inmueble':'Sin inmueble específico')} ${d.cod?'<span class=cod>'+esc(d.cod)+'</span>':''}</div>
 ${d.x?'<div><b>'+esc(d.x)+'</b></div>':''}${d.s?'<div>📝 '+esc(d.s)+'</div>':''}
