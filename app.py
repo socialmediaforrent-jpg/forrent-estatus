@@ -38,9 +38,10 @@ def load(p,d):
 def clientes():
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{})
     ex=set(cf.get('excluir_contactos',[])); exa={norm(a) for a in cf.get('excluir_asesores',[])}-PAUSA  # pausa = solo asignación; siguen en seguimiento
-    out={}
+    out={}; rs=load(RESP,{})
     for k,v in r.items():
-        if k in ex or v.get('cerrado') or v.get('estado')!='ASIGNADO' or norm(v.get('asesor')) in exa: continue
+        if k in ex or v.get('cerrado') or norm(v.get('asesor')) in exa: continue
+        if v.get('estado')!='ASIGNADO' and not vencido(v,rs.get(k)): continue  # + Contactado vencidos (+72h)
         out.setdefault(v.get('asesor') or 'Sin asesor',[]).append(dict(v,contact_id=k))
     for l in out.values(): l.sort(key=lambda x:x.get('asignado_at') or '')
     return out
@@ -163,14 +164,39 @@ const j=await r.json().catch(()=>({}));if(r.ok){m.textContent='✔ Guardado';f.c
 document.querySelectorAll('select[name=estatus]').forEach(fv);"""
 def page(title,sub,body):
     return f"<!doctype html><html lang=es><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sistema de Seguimiento de Cliente · For Rent · {html.escape(title)}</title><style>{CSS}{est_css()}</style><script>var EC={json.dumps(ECLS,ensure_ascii=False)}</script><header><img src=/logo.jpg alt='For Rent Grupo Inmobiliario'><h1 class=tt>Sistema de Seguimiento de Cliente</h1><p>{sub}</p></header><main>{body}</main><script>{JS}</script></html>"
+def desde(v,r):
+    """Fecha en que el cliente entró a su estatus actual: (iso, fuente)."""
+    r=r or {}
+    if r.get('estatus'):
+        h=[o for o in r.get('historial',[]) if o.get('estatus')]+[r]
+        t=r.get('at','')
+        for o in reversed(h[:-1]):
+            if o.get('estatus')==r['estatus'] and o.get('at'): t=o['at']
+            else: break
+        return t,'pagina'
+    for k,s in (('estado_desde','telegram'),('primer_contacto_at','primer_contacto'),('asignado_at','asignacion')):
+        if v.get(k): return v[k],s
+    return '',''
+def horas(iso):
+    try: return (datetime.datetime.now().astimezone()-datetime.datetime.fromisoformat(iso)).total_seconds()/3600
+    except Exception: return None
+def contactado(v,r):
+    r=r or {}
+    return r.get('estatus')=='Contactado' if r.get('estatus') else (v.get('estado') or '').upper().strip() in ('CONTACTADO','INTERESADO')
+def vencido(v,r):
+    if v.get('cerrado') or not contactado(v,r): return False
+    h=horas(desde(v,r)[0]); return h is not None and h>72
 def card(v,resp):
     e=html.escape; t,cod=inmueble(v); r=resp.get(v['contact_id'],{})
     opts=''.join(f"<option class=e{ECLS[s]}{' selected' if r.get('estatus')==s else ''}>{s}</option>" for s in ESTATUS)
     tel=f" · 📞 {e(v['telefono'])}" if v.get('telefono') else ''
-    fa=fecha(v.get('asignado_at')); 
+    fa=fecha(v.get('asignado_at')); vb=''
+    if vencido(v,r):
+        hh=horas(desde(v,r)[0])
+        if 1: vb=f"<div style='margin:6px 0;padding:6px 8px;background:#fee2e2;border-radius:8px;color:#991b1b;font-size:13px'><span style='background:#dc2626;color:#fff;border-radius:6px;padding:1px 7px;font-weight:bold'>Vencido +72h</span> Contactado hace {int(hh//24)} días · Tienes 72 horas para actualizar este cliente</div>"
     return f"""<div class="card{' ok' if r else ''}"><div class=n>{e(v.get('nombre') or 'Cliente')}</div>
 <div class=meta>{('Asignado: '+fa) if fa else ''}{tel}{(' · '+e(v.get('tipo_lead'))) if v.get('tipo_lead') else ''}</div>
-<div class=inm>🏠 {e(t) or ('Inmueble' if cod else 'Sin inmueble específico')}{f'<span class=cod>{e(cod)}</span>' if cod else ''}</div>
+{vb}<div class=inm>🏠 {e(t) or ('Inmueble' if cod else 'Sin inmueble específico')}{f'<span class=cod>{e(cod)}</span>' if cod else ''}</div>
 <form onsubmit="return g(this,'{e(v['contact_id'])}')"><select name=estatus onchange=fv(this) required><option value="">— Estatus —</option>{opts}</select>
 <div class=x-fecha style=display:none><label class=meta>Fecha de la visita</label><input type=datetime-local name=fecha_visita value="{e(r.get('fecha_visita') or '')}"></div>
 <div class=x-int style=display:none><select name=interes><option value="">— ¿Interés tras la visita? —</option>{''.join(f"<option{' selected' if r.get('interes')==x else ''}>{x}</option>" for x in INTERES)}</select></div>
@@ -196,7 +222,7 @@ class H(BaseHTTPRequestHandler):
         p,c,t,inv=self.ctx(); resp=mig(load(RESP,{}))
         if len(p)==3 and p[1]=='a' and p[2] in inv:
             a=inv[p[2]]; l=c.get(a,[])
-            return self.send(200,page(a,f"Hola, {html.escape(a.split()[0])}. Tienes {len(l)} cliente(s) sin estatus. Cuéntanos la situación de cada uno.",''.join(card(v,resp) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>'))
+            return self.send(200,page(a,f"Hola, {html.escape(a.split()[0])}. Tienes {len(l)} cliente(s) por actualizar. Cuéntanos la situación de cada uno.",''.join(card(v,resp) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>'))
         if len(p)==3 and p[1]=='admin' and p[2]==t['admin']:
             import panel; return self.send(200,panel.render(page,resp))
         self.send(404,page('No encontrado','Enlace no válido','<p>Este enlace no es válido.</p>'))
