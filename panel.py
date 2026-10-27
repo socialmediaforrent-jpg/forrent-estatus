@@ -43,6 +43,10 @@ const L=Object.values(m);L.forEach(r=>r.pct=Math.round(100*r.con/r.tot));L.sort(
 function srt(k){sd=sk==k?-sd:-1;sk=k;tab()}
 function tab(){let h='<tr>'+[['rank','#'],['a','Asesor'],['tot','Total'],['ab','Abiertos'],['con','Con estatus'],['sin','Sin estatus'],['pct','% seguimiento'],['ult','Última act. página']].map(([k,t])=>`<th onclick="srt('${k}')">${t}${sk==k?(sd>0?' ▲':' ▼'):''}</th>`).join('')+'<th>Estatus en página (abiertos)</th></tr>';
 for(const r of rows())h+=`<tr class="as ${fa==r.a?'sel':''} " onclick="sa('${esc(r.a)}')"><td><b style="font-size:16px;color:#E76108">${r.rank}</b></td><td style="white-space:nowrap"><b>${esc(r.a)}</b>${r.p?'<span class=pz>pausada de asignaciones</span>':''}</td><td>${r.tot}</td><td>${r.ab}</td><td>${r.con}</td><td>${r.sin}</td><td><div style="display:flex;align-items:center;gap:6px;min-width:150px"><div class=bar style="flex:1"><i style="width:${r.pct}%"></i></div><b>${r.pct}%</b></div></td><td>${r.ult?r.ult.slice(0,16).replace('T',' '):'—'}</td>`+'<td>'+Object.entries(r.c).sort((x,y)=>EC[x[0]]-EC[y[0]]).map(([e,n])=>`<span class="chip${ec(e)}">${esc(e)} ${n}</span>`).join(' ')+'</td></tr>';$('#tb').innerHTML=h}
+function mx(){const S=['Sin estatus',...E],L=rows().slice().sort((x,y)=>x.rank-y.rank),T={};let h='<tr><th>Asesor</th>'+S.map(e=>`<th class="${ec(e)}" style="white-space:normal;min-width:78px;font-size:11px">${e}</th>`).join('')+'<th>Total</th></tr>';
+for(const r of L){let t=0;h+=`<tr><td style="white-space:nowrap"><b>${esc(r.a)}</b></td>`+S.map(e=>{const n=r.c[e]||0;t+=n;T[e]=(T[e]||0)+n;return `<td style="text-align:center;cursor:${n?'pointer':'default'}" onclick="fx('${esc(r.a)}','${e}')">${n?'<b>'+n+'</b>':'<span style=color:#bbb>·</span>'}</td>`}).join('')+`<td style="text-align:center"><b>${t}</b></td></tr>`}
+h+='<tr style="background:#f4f4f5"><td><b>Total</b></td>'+S.map(e=>`<td style="text-align:center;cursor:pointer" onclick="fx('','${e}')"><b>${T[e]||0}</b></td>`).join('')+`<td style="text-align:center"><b>${D.length}</b></td></tr>`;$('#mx').innerHTML=h}
+function fx(a,e){fa=a;fe=e;$('#fa').value=fa;$('#fe').value=fe;go();$('#cl').scrollIntoView({behavior:'smooth'})}
 function sa(a){fa=fa==a?'':a;$('#fa').value=fa;go();$('#cl').scrollIntoView({behavior:'smooth'})}
 function cl(){const L=D.filter(d=>(!fe||d.e==fe)&&(!fa||d.a==fa)&&(!q||d.n.toLowerCase().includes(q)));L.sort((x,y)=>x.a.localeCompare(y.a)||x.fs.localeCompare(y.fs));
 $('#ct').textContent=`${L.length} cliente(s)`+(fa?' · '+fa:'')+(fe?' · '+fe:'');
@@ -52,13 +56,13 @@ $('#cl').innerHTML=L.map(d=>`<div class="c${bc(d.e)}"><b>${esc(d.n)}</b> <span c
 ${d.x?'<div><b>'+esc(d.x)+'</b></div>':''}${d.s?'<div>📝 '+esc(d.s)+'</div>':''}
 ${d.src=='tg'?'<div class=m>Seguimiento Telegram: '+esc(d.tg)+'</div>':'<div class=m>Actualizado '+d.at.slice(0,16).replace('T',' ')+' · Telegram: '+esc(d.tg)+'</div>'}
 ${d.h.length?'<details><summary>Historial ('+d.h.length+')</summary>'+d.h.map(h=>`<div>${h.at.slice(0,16).replace('T',' ')} · ${esc(h.e)} ${esc(h.s)}</div>`).join('')+'</details>':''}</div>`).join('')}
-function go(){kp();tab();cl()}
+function go(){kp();tab();mx();cl()}
 $('#fe').innerHTML='<option value="">Todos los estatus</option>'+['Sin estatus',...E].map(e=>`<option>${e}</option>`).join('');
 $('#fa').innerHTML='<option value="">Todos los asesores</option>'+[...new Set(D.map(d=>d.a))].sort().map(a=>`<option>${esc(a)}</option>`).join('');
 $('#fe').onchange=e=>{fe=e.target.value;go()};$('#fa').onchange=e=>{fa=e.target.value;go()};$('#q').oninput=e=>{q=e.target.value.toLowerCase();cl()};go();"""
 def render(page,resp):
     d=datos(resp); dj=json.dumps(d,ensure_ascii=False).replace('</','<\\/')
     body=f"""<style>{CSS}</style><div class=wrap><div id=kp class=kp></div><div class=f><select id=fe></select><select id=fa></select><input id=q placeholder="Buscar cliente por nombre…"></div>
-<h2>Ranking por asesor</h2><div class=m style="margin:-2px 0 6px">% seguimiento = clientes con respuesta en la página o con estado de Telegram distinto de «asignado», sobre todos sus clientes del registro (incluye cerrados).</div><div class=tw><table id=tb></table></div><h2 id=ct></h2><div id=cl class=cl></div></div>
+<h2>Ranking por asesor</h2><div class=m style="margin:-2px 0 6px">% seguimiento = clientes con respuesta en la página o con estado de Telegram distinto de «asignado», sobre todos sus clientes del registro (incluye cerrados).</div><div class=tw><table id=tb></table></div><h2>Clientes por estatus por asesor</h2><div class=m style="margin:-2px 0 6px">Clientes abiertos. Toca un número para ver esos clientes.</div><div class=tw><table id=mx></table></div><h2 id=ct></h2><div id=cl class=cl></div></div>
 <script>{JS.replace('__EST__',json.dumps(ESTATUS,ensure_ascii=False)).replace('__DATA__',dj)}</script>"""
     return page('Panel',f"Panel de control · {len(d)} clientes abiertos",body)
