@@ -34,7 +34,7 @@ def load(p,d):
     except Exception: return d
 def clientes():
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{})
-    ex=set(cf.get('excluir_contactos',[])); exa=PAUSA|{norm(a) for a in cf.get('excluir_asesores',[])}
+    ex=set(cf.get('excluir_contactos',[])); exa={norm(a) for a in cf.get('excluir_asesores',[])}-PAUSA  # pausa = solo asignación; siguen en seguimiento
     out={}
     for k,v in r.items():
         if k in ex or v.get('cerrado') or v.get('estado')!='ASIGNADO' or norm(v.get('asesor')) in exa: continue
