@@ -1,6 +1,10 @@
 """Panel admin de José (solo lectura)."""
 import json, html
 from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS
+TGMAP={'CONTACTADO':'Contactado','INTERESADO':'Contactado','NO RESPONDE':'No responde','VISITA AGENDADA':'Visita agendada',
+ 'VISITA REALIZADA':'Visita realizada','VISITA CONCRETADA':'Visita realizada','OFERTA':'En oferta o negociación','EN OFERTA':'En oferta o negociación',
+ 'ACEPTADA':'Reserva o firma','RESERVA':'Reserva o firma','FIRMADO':'Reserva o firma','BUSCANDO OTRA PROPIEDAD':'Busca otra opción',
+ 'NO INTERESADO':'Cerrado sin negocio','CERRADO':'Cerrado sin negocio','PERDIDO':'Cerrado sin negocio'}
 def datos(resp):
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{}); ex=set(cf.get('excluir_contactos',[]))
     exa={norm(a) for a in cf.get('excluir_asesores',[])}-PAUSA
@@ -12,7 +16,7 @@ def datos(resp):
               (f"US$ {rr['monto']:,.0f}".replace(',','.')) if rr.get('monto') else '', rr.get('motivo','')] if x)
         out.append(dict(id=k,n=v.get('nombre') or 'Cliente',a=v.get('asesor') or 'Sin asesor',p=norm(v.get('asesor')) in PAUSA,
             tl=v.get('tipo_lead') or '',f=fecha(v.get('asignado_at')),fs=v.get('asignado_at') or '',inm=t,cod=cod,
-            e=rr.get('estatus') or 'Sin estatus',tg=(v.get('estado') or '').capitalize(),x=extra,s=rr.get('situacion',''),at=rr.get('at',''),
+            e=rr.get('estatus') or TGMAP.get((v.get('estado') or '').upper().strip(),'Sin estatus'),src='web' if rr.get('estatus') else 'tg',tg=(v.get('estado') or '').capitalize(),x=extra,s=rr.get('situacion',''),at=rr.get('at',''),
             cer=bool(v.get('cerrado')),ok=bool(rr) or (v.get('estado') or '')!='ASIGNADO' or bool(v.get('cerrado')),h=[dict(e=o.get('estatus'),s=o.get('situacion',''),at=o.get('at','')) for o in rr.get('historial',[])]))
     return out
 CSS="""main{max-width:1240px!important}
@@ -41,11 +45,11 @@ for(const r of rows())h+=`<tr class="as ${fa==r.a?'sel':''} " onclick="sa('${esc
 function sa(a){fa=fa==a?'':a;$('#fa').value=fa;go();$('#cl').scrollIntoView({behavior:'smooth'})}
 function cl(){const L=D.filter(d=>(!fe||d.e==fe)&&(!fa||d.a==fa)&&(!q||d.n.toLowerCase().includes(q)));L.sort((x,y)=>x.a.localeCompare(y.a)||x.fs.localeCompare(y.fs));
 $('#ct').textContent=`${L.length} cliente(s)`+(fa?' · '+fa:'')+(fe?' · '+fe:'');
-$('#cl').innerHTML=L.map(d=>`<div class="c ${d.e=='Sin estatus'?'no':''}"><b>${esc(d.n)}</b> <span class="est ${d.e=='Sin estatus'?'no':''}">${esc(d.e)}</span>
+$('#cl').innerHTML=L.map(d=>`<div class="c ${d.e=='Sin estatus'?'no':''}"><b>${esc(d.n)}</b> <span class="est ${d.e=='Sin estatus'?'no':''}">${esc(d.e)}${d.src=='tg'&&d.e!='Sin estatus'?' (Telegram)':''}</span>
 <div class=m>${esc(d.a)}${d.p?' <span class=pz>pausada de asignaciones</span>':''}${d.tl?' · '+esc(d.tl):''}${d.f?' · Asignado '+d.f:''}</div>
 <div style="margin:6px 0">🏠 ${esc(d.inm)||(d.cod?'Inmueble':'Sin inmueble específico')} ${d.cod?'<span class=cod>'+esc(d.cod)+'</span>':''}</div>
 ${d.x?'<div><b>'+esc(d.x)+'</b></div>':''}${d.s?'<div>📝 '+esc(d.s)+'</div>':''}
-${d.e=='Sin estatus'?'<div class=m>Seguimiento Telegram: '+esc(d.tg)+'</div>':'<div class=m>Actualizado '+d.at.slice(0,16).replace('T',' ')+' · Telegram: '+esc(d.tg)+'</div>'}
+${d.src=='tg'?'<div class=m>Seguimiento Telegram: '+esc(d.tg)+'</div>':'<div class=m>Actualizado '+d.at.slice(0,16).replace('T',' ')+' · Telegram: '+esc(d.tg)+'</div>'}
 ${d.h.length?'<details><summary>Historial ('+d.h.length+')</summary>'+d.h.map(h=>`<div>${h.at.slice(0,16).replace('T',' ')} · ${esc(h.e)} ${esc(h.s)}</div>`).join('')+'</details>':''}</div>`).join('')}
 function go(){kp();tab();cl()}
 $('#fe').innerHTML='<option value="">Todos los estatus</option>'+['Sin estatus',...E].map(e=>`<option>${e}</option>`).join('');
