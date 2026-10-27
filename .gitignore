@@ -1,0 +1,8 @@
+*
+!.gitignore
+!app.py
+!panel.py
+!logo.jpg
+!requirements.txt
+!render.yaml
+!README.md
