@@ -320,6 +320,37 @@ def uploads_list():
             for f in os.listdir(os.path.join(UPL,c)):
                 if not f.endswith('.tmp'): out[c+'/'+f]=os.path.getsize(os.path.join(UPL,c,f))
     return out
+# ===== API solo lectura de documentos (Sistema Contable, OK José 27-oct 8:06) =====
+DOC_KEY_FILE=os.path.join(DATA_DIR,'doc_api.key') if REMOTE else '/workspace/forrent/secrets/doc_api.key'
+def doc_api_key():
+    k=os.environ.get('DOC_API_KEY','').strip()
+    if k: return k
+    try: return open(DOC_KEY_FILE).read().strip()
+    except Exception: return ''
+def set_doc_api_key(k):
+    k=(k or '').strip()
+    if len(k)>=16 and REMOTE:
+        tmp=DOC_KEY_FILE+'.tmp'; fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+        with os.fdopen(fd,'w') as f: f.write(k)
+        os.replace(tmp,DOC_KEY_FILE)
+def api_doc(cid):
+    if not re.fullmatch(r'[A-Za-z0-9_-]+',cid or ''): return None
+    d=os.path.join(UPL,cid)
+    fs=[f for f in os.listdir(d) if not f.endswith('.tmp') and os.path.isfile(os.path.join(d,f))] if os.path.isdir(d) else []
+    if not fs: return None
+    fs.sort(key=lambda f:(f.split('_',1)[0],os.path.getmtime(os.path.join(d,f))),reverse=True)
+    def at(f):
+        m=re.match(r'(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})_',f)
+        return f'{m[1]}-{m[2]}-{m[3]}T{m[4]}:{m[5]}:{m[6]}' if m else datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(d,f))).isoformat(timespec='seconds')
+    v={}
+    for a,l in clientes().items():
+        for x in l:
+            if x.get('contact_id')==cid: v=x
+    st=actual(v,mig(load(RESP,{})).get(cid,{})) if v else conv_full(load(RESP,{}).get(cid)) or {}
+    q=lambda f:'/api/doc/file?'+urllib.parse.urlencode({'cliente_id':cid,'f':f})
+    return {'cliente_id':cid,'cliente':v.get('nombre') or '','asesor':v.get('asesor') or st.get('asesor') or '',
+      'estado':st.get('estado') or '','situacion':st.get('situacion') or '','fecha':st.get('fecha') or '',
+      'docs':[{'nombre':doc_name(f),'subido_at':at(f),'url':q(f)} for f in fs]}
 class H(BaseHTTPRequestHandler):
     def ctx(self):
         p=urllib.parse.urlparse(self.path).path.rstrip('/').split('/')
@@ -332,12 +363,29 @@ class H(BaseHTTPRequestHandler):
         ct=mimetypes.guess_type(fp)[0] or 'application/octet-stream'; b=open(fp,'rb').read()
         self.send_response(200); self.send_header('Content-Type',ct); self.send_header('Cache-Control','no-store'); self.send_header('X-Robots-Tag','noindex'); self.end_headers(); self.wfile.write(b)
     def sync_ok(self): return bool(SYNC_KEY) and hmac.compare_digest(self.headers.get('X-Sync-Key',''),SYNC_KEY)
+    def api_ok(self):
+        k=doc_api_key(); qs=urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        g=self.headers.get('X-Api-Key') or qs.get('key',[''])[0]
+        return bool(k) and hmac.compare_digest(g.encode(),k.encode())
     def do_HEAD(self): self.send_response(200); self.end_headers()
     def do_GET(self):
         if self.path=='/healthz': return self.send(200,'ok','text/plain')
         if self.path=='/sync/respuestas':
             if not self.sync_ok(): return self.send(403,'{}','application/json')
             with LOCK: return self.send(200,json.dumps(load(RESP,{}),ensure_ascii=False),'application/json')
+        up=urllib.parse.urlparse(self.path)
+        if up.path in ('/api/doc','/api/doc/file'):
+            if not self.api_ok(): return self.send(401,'{"error":"unauthorized"}','application/json')
+            qs=urllib.parse.parse_qs(up.query); cid=qs.get('cliente_id',[''])[0]
+            if up.path=='/api/doc':
+                j=api_doc(cid)
+                if not j: return self.send(404,'{"error":"sin documentos"}','application/json')
+                return self.send(200,json.dumps(j,ensure_ascii=False),'application/json; charset=utf-8')
+            f=qs.get('f',[''])[0]
+            if f!=os.path.basename(f) or f.startswith('.') or not re.fullmatch(r'[A-Za-z0-9_-]+',cid): return self.send(400,'{"error":"ruta invalida"}','application/json')
+            fp=safe_upl(cid+'/'+f)
+            if not fp or not os.path.isfile(fp): return self.send(404,'{"error":"no encontrado"}','application/json')
+            return self.file(fp)
         if self.path=='/logo.jpg':
             b=open(os.path.join(BASE,'logo.jpg'),'rb').read(); self.send_response(200); self.send_header('Content-Type','image/jpeg'); self.send_header('Cache-Control','max-age=86400'); self.end_headers(); return self.wfile.write(b)
         if self.path=='/sync/uploads':
@@ -370,6 +418,7 @@ class H(BaseHTTPRequestHandler):
                 for key,path in [('registro',REG),('config',CFG),('tokens',TOK),('inmuebles',INMP),('equipos',EQP)]:
                     if key in d: _wj(path,d[key])
                 if 'respuestas' in d: _wj(RESP,merge_resp(d['respuestas'],load(RESP,{})))
+                if d.get('doc_api_key'): set_doc_api_key(d['doc_api_key'])
                 for rel,b in (d.get('uploads') or {}).items(): save_upl(rel,base64.b64decode(b))
             return self.send(200,'{"ok":true}','application/json')
         p,c,t,inv=self.ctx()
