@@ -35,6 +35,21 @@ def _txt(h):
     r,g,b=(int(h[i:i+2],16) for i in (1,3,5)); return '#1f1a00' if (0.299*r+0.587*g+0.114*b)>150 else '#fff'
 COLOR={k:(v,_txt(v)) for k,v in COLOR_HEX.items()}
 CIERRE_URL=os.environ.get('CIERRE_URL','#')  # Sistema Contable de For Rent (lo construye Contabilidad)
+EQP=os.path.join(_D,'equipos.json')  # {lider:[miembros]} (código, no datos sensibles)
+OUTBOX=os.path.join(_D,'outbox_lideres.json')  # avisos pendientes a líderes; NO se envían sin OK de José
+def equipos():
+    try: return {k:[m for m in v if not m.startswith('?')] for k,v in json.load(open(EQP)).items() if not k.startswith('_')}
+    except Exception: return {}
+def lider_de(a):
+    for l,m in equipos().items():
+        if a==l or a in m: return l
+    return ''
+def cierre_url(v):
+    q=urllib.parse.urlencode({'cliente_id':v['contact_id'],'cliente':v.get('nombre') or '','asesor':v.get('asesor') or ''})
+    return (CIERRE_URL+('&' if '?' in CIERRE_URL else '?')+q) if CIERRE_URL!='#' else '#'
+def cierre_btn(v):
+    tip='' if CIERRE_URL!='#' else " title='Próximamente — Sistema Contable de For Rent' onclick='alert(this.title);return false'"
+    return f"<a class=cierre href=\"{html.escape(cierre_url(v))}\" target=_blank{tip}>Reportar Cierre</a>"
 UPL=os.path.join(_D,'uploads'); DOC_EXT={'.pdf','.jpg','.jpeg','.png','.webp','.heic'}; DOC_MAX=10_000_000
 def color_key(st): return st.get('situacion') if st.get('situacion') in COLOR else (st.get('estado') or 'Sin estatus')
 def est_css(): return ''.join(f'.e{i}{{background:{b}!important;color:{t}!important;border-color:{b}!important}}.b{i}{{border-color:{b}!important}}' for i,(b,t) in enumerate(COLOR.values()))
@@ -265,7 +280,7 @@ def conv_full(r):
     if r.get('estado') in ESTADOS and all(h.get('estado') in ESTADOS for h in r.get('historial',[]) or []): return r
     return mig({'x':r}).get('x',{})
 def doc_name(p): return os.path.basename(p or '').split('_',1)[-1]
-def card(v,resp,tok=''):
+def card(v,resp,tok='',lider=False):
     e=html.escape; t,cod=inmueble(v); r=resp.get(v['contact_id'],{}); a=actual(v,r)
     cur_e=r.get('estado') or ''; cur_s=r.get('situacion') or ''
     if not cur_e and a.get('estado')!='Sin estatus': cur_e=a['estado']; cur_s=a.get('situacion') or ''
@@ -275,9 +290,7 @@ def card(v,resp,tok=''):
     if vencido(v,r):
         hh=horas(desde(v,r)[0])
         vb=f"<div style='margin:6px 0;padding:6px 8px;background:#fee2e2;border-radius:8px;color:#991b1b;font-size:13px'><span style='background:#dc2626;color:#fff;border-radius:6px;padding:1px 7px;font-weight:bold'>Vencido +72h</span> Contactado hace {int(hh//24)} días · Tienes 72 horas para actualizar este cliente</div>"
-    cid=e(v['contact_id']); q=urllib.parse.urlencode({'cliente_id':v['contact_id'],'cliente':v.get('nombre') or '','asesor':v.get('asesor') or ''})
-    cierre=(CIERRE_URL+('&' if '?' in CIERRE_URL else '?')+q) if CIERRE_URL!='#' else '#'
-    tip='' if CIERRE_URL!='#' else " title='Próximamente — Sistema Contable de For Rent' onclick='alert(this.title);return false'"
+    cid=e(v['contact_id'])
     docl=f"<div class=meta>📎 Documento actual: <a href='/a/{e(tok)}/doc/{cid}/{e(os.path.basename(r['doc']))}' target=_blank>{e(doc_name(r['doc']))}</a></div>" if r.get('doc') else ''
     act=''
     if a.get('estado')!='Sin estatus':
@@ -290,7 +303,7 @@ def card(v,resp,tok=''):
 <div class=x-fecha style=display:none><label class=meta>Fecha <span class=x-fl></span></label><input type=date name=fecha value="{e((r.get('fecha') or a.get('fecha') or '')[:10])}"></div>
 <div class=x-mot style=display:none><input name=motivo maxlength=500 value="{e(r.get('motivo') or '')}"></div>
 <div class=x-doc style=display:none><label class=meta>Documento de reserva (PDF o imagen, máx. 10 MB)</label><input type=file name=doc accept=".pdf,image/*">{docl}
-<a class=cierre href="{e(cierre)}" target=_blank{tip}>Reportar Cierre</a></div>
+{cierre_btn(v) if lider else "<div class=meta>Tu líder reportará el cierre en el Sistema Contable.</div>"}</div>
 <label class=meta>Comentario</label><textarea name=comentario maxlength=2000 placeholder="Comentario (opcional)…">{e(r.get('comentario') or '')}</textarea><button>Guardar</button><div class=msg>{'Último guardado: '+e(r.get('at','')[:16].replace('T',' ')) if r else ''}</div></form></div>"""
 def safe_upl(rel):
     rel=(rel or '').replace('\\','/')
@@ -339,8 +352,12 @@ class H(BaseHTTPRequestHandler):
         if len(p)==6 and p[3]=='doc' and ((p[1]=='a' and p[2] in inv and p[4] in {v['contact_id'] for v in c.get(inv[p[2]],[])}) or (p[1]=='admin' and p[2]==t['admin'])):
             return self.file(safe_upl(p[4]+'/'+p[5]))
         if len(p)==3 and p[1]=='a' and p[2] in inv:
-            a=inv[p[2]]; l=c.get(a,[])
-            return self.send(200,page(a,f"Hola, {html.escape(a.split()[0])}. Tienes {len(l)} cliente(s) por actualizar. Cuéntanos la situación de cada uno.",''.join(card(v,resp,p[2]) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>'))
+            a=inv[p[2]]; l=c.get(a,[]); eq=equipos(); ld=a in eq
+            body=''.join(card(v,resp,p[2],ld) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>'
+            if ld:
+                pend=[v for m in eq[a] for v in c.get(m,[]) if actual(v,resp.get(v['contact_id'],{})).get('situacion')=='Reserva firmada']
+                if pend: body=f"<h2 style='color:#E76108'>Cierres por reportar de tu equipo ({len(pend)})</h2>"+''.join(f"<div class='card ok'><div class=n>{html.escape(v.get('nombre') or 'Cliente')}</div><div class=meta>Asesor: {html.escape(v.get('asesor') or '')} · Negociación · Reserva firmada</div><div class=inm>🏠 {html.escape(inmueble(v)[0] or '')}</div>{cierre_btn(v)}</div>" for v in pend)+'<h2>Tus clientes</h2>'+body
+            return self.send(200,page(a,f"Hola, {html.escape(a.split()[0])}. Tienes {len(l)} cliente(s) por actualizar. Cuéntanos la situación de cada uno.",body))
         if len(p)==3 and p[1]=='admin' and p[2]==t['admin']:
             import panel; return self.send(200,panel.render(page,resp,t['admin']))
         self.send(404,page('No encontrado','Enlace no válido','<p>Este enlace no es válido.</p>'))
@@ -350,7 +367,7 @@ class H(BaseHTTPRequestHandler):
             try: d=json.loads(self.rfile.read(min(int(self.headers.get('Content-Length',0)),50_000_000)))
             except Exception: return self.send(400,'{}','application/json')
             with LOCK:
-                for key,path in [('registro',REG),('config',CFG),('tokens',TOK),('inmuebles',INMP)]:
+                for key,path in [('registro',REG),('config',CFG),('tokens',TOK),('inmuebles',INMP),('equipos',EQP)]:
                     if key in d: _wj(path,d[key])
                 if 'respuestas' in d: _wj(RESP,merge_resp(d['respuestas'],load(RESP,{})))
                 for rel,b in (d.get('uploads') or {}).items(): save_upl(rel,base64.b64decode(b))
@@ -386,6 +403,9 @@ class H(BaseHTTPRequestHandler):
             if old:
                 h=old.pop('historial',[]) or []; rec['historial']=(h+[old])[-10:]
             r[d['id']]=rec; _wj(RESP,r)
+            if rec.get('situacion')=='Reserva firmada' and old.get('situacion')!='Reserva firmada':
+                ld=lider_de(a); v=next(x for x in c[a] if x['contact_id']==d['id'])
+                ob=load(OUTBOX,[]); ob.append({'cliente_id':d['id'],'cliente':v.get('nombre') or '','asesor':a,'lider':ld or '(sin líder asignado)','url':cierre_url(v),'at':now,'enviado':False}); _wj(OUTBOX,ob)
         self.send(200,'{"ok":true}','application/json')
     def log_message(self,*a): pass
 if __name__=='__main__':

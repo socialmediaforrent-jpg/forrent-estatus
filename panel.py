@@ -1,6 +1,6 @@
 """Panel admin de José (solo lectura)."""
 import json, html
-from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS, ECLS, SITS, mig, desde, horas, actual, color_key
+from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS, ECLS, SITS, mig, desde, horas, actual, color_key, cierre_url
 def datos(resp,admin=''):
     resp=mig(resp)
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{}); ex=set(cf.get('excluir_contactos',[]))
@@ -13,7 +13,7 @@ def datos(resp,admin=''):
         out.append(dict(hc=round(hh,1) if hh is not None else None,vc=bool(hh and hh>72 and not v.get('cerrado')),dsrc=dsrc,id=k,n=v.get('nombre') or 'Cliente',a=v.get('asesor') or 'Sin asesor',p=norm(v.get('asesor')) in PAUSA,
             tl=v.get('tipo_lead') or '',f=fecha(v.get('asignado_at')),fs=v.get('asignado_at') or '',inm=t,cod=cod,
             e=st.get('estado'),si=st.get('situacion',''),fe=fecha(st.get('fecha')) if st.get('fecha') else '',mo=st.get('motivo',''),co=st.get('comentario',''),
-            ck=color_key(st),doc=(f"/admin/{admin}/doc/{rr['doc']}" if rr.get('doc') and admin else ''),
+            ck=color_key(st),cu=(cierre_url({**v,'contact_id':k}) if st.get('situacion')=='Reserva firmada' else ''),doc=(f"/admin/{admin}/doc/{rr['doc']}" if rr.get('doc') and admin else ''),
             src=st.get('src'),tg=(v.get('estado') or '').capitalize(),at=rr.get('at',''),
             cer=bool(v.get('cerrado')),ok=st.get('estado')!='Sin estatus' or bool(v.get('cerrado')),
             h=[dict(e=' · '.join(x for x in [o.get('estado'),o.get('situacion'),fecha(o.get('fecha')) if o.get('fecha') else '',o.get('motivo')] if x),s=o.get('comentario',''),at=o.get('at','')) for o in rr.get('historial',[])]))
@@ -56,7 +56,7 @@ $('#cl').innerHTML=L.map(d=>`<div class="c${bc(d.ck)}"><b>${esc(d.n)}</b> <span 
 ${d.hc!=null?`<div class=m style="color:${d.vc?'#b91c1c':'#666'};font-weight:${d.vc?'bold':'normal'}">Contactado hace ${hx(d.hc)}${d.dsrc=='asignacion'?' (desde asignación)':d.dsrc=='primer_contacto'?' (desde primer contacto)':''}</div>`:''}
 <div class=m>${esc(d.a)}${d.p?' <span class=pz>pausada de asignaciones</span>':''}${d.tl?' · '+esc(d.tl):''}${d.f?' · Asignado '+d.f:''}</div>
 <div style="margin:6px 0">🏠 ${esc(d.inm)||(d.cod?'Inmueble':'Sin inmueble específico')} ${d.cod?'<span class=cod>'+esc(d.cod)+'</span>':''}</div>
-${d.mo?'<div><b>Motivo:</b> '+esc(d.mo)+'</div>':''}${d.co?'<div>📝 '+esc(d.co)+'</div>':''}${d.doc?'<div>📎 <a href="'+esc(d.doc)+'" target=_blank>Documento de reserva</a></div>':''}
+${d.mo?'<div><b>Motivo:</b> '+esc(d.mo)+'</div>':''}${d.co?'<div>📝 '+esc(d.co)+'</div>':''}${d.doc?'<div>📎 <a href="'+esc(d.doc)+'" target=_blank>Documento de reserva</a></div>':''}${d.cu?'<div><a class=cierre href="'+esc(d.cu)+'" target=_blank'+(d.cu=='#'?' onclick="alert(\'Próximamente — Sistema Contable de For Rent\');return false"':'')+'>Reportar Cierre</a></div>':''}
 ${d.src=='tg'?'<div class=m>Seguimiento Telegram: '+esc(d.tg)+'</div>':'<div class=m>Actualizado '+d.at.slice(0,16).replace('T',' ')+' · Telegram: '+esc(d.tg)+'</div>'}
 ${d.h.length?'<details><summary>Historial ('+d.h.length+')</summary>'+d.h.map(h=>`<div>${h.at.slice(0,16).replace('T',' ')} · ${esc(h.e)} ${esc(h.s)}</div>`).join('')+'</details>':''}</div>`).join('')}
 function go(){kp();tab();mx();cl()}
