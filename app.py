@@ -44,12 +44,19 @@ def lider_de(a):
     for l,m in equipos().items():
         if a==l or a in m: return l
     return ''
+def lider_token(v):
+    l=lider_de(v.get('asesor') or '').lower()
+    k='CONTABILIDAD_TOKEN_ANA' if l.startswith('ana') else 'CONTABILIDAD_TOKEN_MIRIAM' if l.startswith('miriam') else ''
+    return os.environ.get(k,'').strip() if k else ''
 def cierre_url(v):
-    q=urllib.parse.urlencode({'cliente_id':v['contact_id'],'cliente':v.get('nombre') or '','asesor':v.get('asesor') or ''})
-    return (CIERRE_URL+('&' if '?' in CIERRE_URL else '?')+q) if CIERRE_URL!='#' else '#'
+    t=lider_token(v)
+    if CIERRE_URL=='#' or not t: return '#'
+    q=urllib.parse.urlencode({'t':t,'cliente_id':v['contact_id'],'cliente':v.get('nombre') or '','asesor':v.get('asesor') or ''})
+    return CIERRE_URL+('&' if '?' in CIERRE_URL else '?')+q
 def cierre_btn(v):
-    tip='' if CIERRE_URL!='#' else " title='Próximamente — Sistema Contable de For Rent' onclick='alert(this.title);return false'"
-    return f"<a class=cierre href=\"{html.escape(cierre_url(v))}\" target=_blank{tip}>Reportar Cierre</a>"
+    if cierre_url(v)=='#':
+        return "<span class=cierre title='Reportar Cierre: pendiente de configurar' style='opacity:.55;cursor:default'>Reportar Cierre (pendiente de configurar)</span>"
+    return f"<a class=cierre href=\"{html.escape(cierre_url(v))}\" target=_blank>Reportar Cierre</a>"
 UPL=os.path.join(_D,'uploads'); DOC_EXT={'.pdf','.jpg','.jpeg','.png','.webp','.heic'}; DOC_MAX=10_000_000
 def color_key(st): return st.get('situacion') if st.get('situacion') in COLOR else (st.get('estado') or 'Sin estatus')
 def est_css(): return ''.join(f'.e{i}{{background:{b}!important;color:{t}!important;border-color:{b}!important}}.b{i}{{border-color:{b}!important}}' for i,(b,t) in enumerate(COLOR.values()))

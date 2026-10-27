@@ -13,3 +13,9 @@ services:
         sync: false
       - key: PYTHON_VERSION
         value: 3.12.7
+      - key: CIERRE_URL
+        sync: false
+      - key: CONTABILIDAD_TOKEN_ANA
+        sync: false
+      - key: CONTABILIDAD_TOKEN_MIRIAM
+        sync: false
