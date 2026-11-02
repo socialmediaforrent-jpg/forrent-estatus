@@ -249,7 +249,7 @@ JS="""const SX=window.ESTCFG||{};
 function fv(s,keep){const f=s.form,v=s.value,c=SX[v]||{},sits=c.sits||[];const sh=(q,on)=>{const x=f.querySelector(q);x.style.display=on?'block':'none';return x};
 const ss=f.querySelector('select[name=situacion]');const prev=keep?f.dataset.sit:ss.value;
 ss.innerHTML='<option value="">— Situación —</option>'+sits.map(x=>`<option${x[0]==prev?' selected':''}>${x[0]}</option>`).join('');ss.required=sits.length>0;
-sh('.x-sit',sits.length>0);const m=sh('.x-mot',!!c.motivo).querySelector('input');m.required=!!c.motivo;m.placeholder=c.motivo||'';
+sh('.x-sit',true);ss.disabled=!v;if(!v)ss.innerHTML='<option value="">— Elige primero el Estado —</option>';const m=sh('.x-mot',!!c.motivo).querySelector('input');m.required=!!c.motivo;m.placeholder=c.motivo||'';
 s.className=(window.EC&&EC[v]!=null)?'e'+EC[v]:'';fs(ss)}
 function fs(ss){const f=ss.form,e=f.querySelector('select[name=estado]').value,sits=(SX[e]||{}).sits||[],d=sits.find(x=>x[0]==ss.value);
 const fx=f.querySelector('.x-fecha');fx.style.display=d&&d[1]?'block':'none';const fi=fx.querySelector('input');fi.required=!!(d&&d[2]);fx.querySelector('.x-fl').textContent=d?'('+d[0]+(d[2]?'':', opcional')+')':'';
