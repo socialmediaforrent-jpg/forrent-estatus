@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""For Rent – estatus de clientes por asesor. Solo lee registro.json; escribe respuestas.json."""
+"""For Rent – Sistema de Clientes (asignación + seguimiento por asesor). Solo lee registro.json; escribe respuestas.json."""
 import json, re, os, base64, mimetypes, secrets, hmac, html, unicodedata, threading, datetime, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 BASE=os.path.dirname(os.path.abspath(__file__))
@@ -260,7 +260,7 @@ const j=await r.json().catch(()=>({}));if(r.ok){m.textContent='✔ Guardado';f.c
 document.querySelectorAll('select[name=estado]').forEach(s=>fv(s,1));"""
 
 def page(title,sub,body):
-    return f"<!doctype html><html lang=es><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sistema de Seguimiento de Cliente · For Rent · {html.escape(title)}</title><style>{CSS}{est_css()}</style><script>var EC={json.dumps(ECLS,ensure_ascii=False)},ESTCFG={json.dumps(ESTADOS,ensure_ascii=False)}</script><header><img src=/logo.jpg alt='For Rent Grupo Inmobiliario'><h1 class=tt>Sistema de Seguimiento de Cliente</h1><p>{sub}</p></header><main>{body}</main><script>{JS}</script></html>"
+    return f"<!doctype html><html lang=es><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sistema de Clientes · For Rent · {html.escape(title)}</title><style>{CSS}{est_css()}</style><script>var EC={json.dumps(ECLS,ensure_ascii=False)},ESTCFG={json.dumps(ESTADOS,ensure_ascii=False)}</script><header><img src=/logo.jpg alt='For Rent Grupo Inmobiliario'><h1 class=tt>Sistema de Clientes</h1><p>{sub}</p></header><main>{body}</main><script>{JS}</script></html>"
 def desde(v,r):
     """Fecha en que el cliente entró a su estado+situación actual: (iso, fuente)."""
     r=r or {}

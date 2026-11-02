@@ -1,8 +1,78 @@
-"""Panel admin de José (solo lectura)."""
+"""Sistema de Clientes — panel admin de José (solo lectura): recorrido de punta a punta."""
 import json, html
 from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS, ECLS, SITS, mig, desde, horas, actual, color_key, cierre_url
+
+import os, re, glob
+_RD=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'reports')
+def _asig_local():
+    """Fallback local (caja): datos de asignación desde reports/asignados_para_visitas_AAAAMMDD.json."""
+    out={}
+    for f in sorted(glob.glob(os.path.join(_RD,'asignados_para_visitas_*.json'))):
+        if not re.search(r'_\d{8}\.json$',f): continue
+        for x in (load(f,{}) or {}).get('asignados',[]) or []:
+            if isinstance(x,dict) and x.get('contact_id'): out[x['contact_id']]={k:x.get(k) for k in ('asesor','tipo_lead','propiedad','asignado_at','origen') if x.get(k)}
+    return out
+def _limpio(t):
+    t=str(t or '')
+    t=re.sub(r'https?://\S+|www\.\S+','',t); t=re.sub(r'\bMLV-?\d+\b','',t,flags=re.I)
+    return re.sub(r'\s{2,}',' ',re.sub(r'\(\s*[,;]?\s*\)','',t)).strip(' ,;·-')
+def _m(x,mon=None):
+    try: return f"{(mon or 'US$').replace('USD','US$')} {float(x):,.0f}".replace(',','.')
+    except Exception: return str(x)
+def recorrido(v,rr,asig=None):
+    """Etapas: Asignación, Contacto, Visita, Oferta, Reserva. Solo datos registrados; si no hay -> 'pendiente'."""
+    rr=rr or {}; a=asig or v.get('asig') or {}
+    hist=[o for o in (rr.get('historial') or [])]+([rr] if rr.get('estado') else [])
+    def web(sits):
+        for o in reversed(hist):
+            if o.get('situacion') in sits: return o
+        return None
+    P='pendiente'
+    # Asignación
+    fa=a.get('asignado_at') or v.get('asignado_at')
+    asg=' · '.join(x for x in [fecha(fa),a.get('asesor') or v.get('asesor'),a.get('tipo_lead') or v.get('tipo_lead')] if x) or P
+    prop=_limpio(a.get('propiedad') or '') or inmueble(v)[0] or ''
+    # Contacto
+    c=P
+    if v.get('primer_contacto_at'): c='Contactado '+fecha(v['primer_contacto_at'])
+    else:
+        o=web({'Contactado'})
+        if o: c='Contactado'+(' '+fecha(o.get('at')) if o.get('at') else '')
+        elif web({'No contactado'}): c='No contactado'
+        elif (v.get('estado') or '').upper() in ('NO RESPONDE','NO CONTACTADO'): c='No contactado'
+        elif any(o.get('estado') in ('En proceso','Negociación','Perfeccionado','Inmueble entregado') for o in hist): c='Contactado'
+    # Visita
+    vi=P; vs=v.get('visita') or {}; rv=(v.get('resultado_visita') or '').strip()
+    if vs.get('realizada_at') or rv=='realizada': vi='Concretada'+(' '+fecha(vs.get('realizada_at')) if vs.get('realizada_at') else '')
+    elif rv.lower().startswith('no'):
+        vi=('Cancelada' if 'cancel' in rv.lower() else 'No concretada')+' — '+rv.split(':',1)[-1].strip() if ':' in rv else 'No concretada'
+    elif vs.get('fecha'):
+        vi=('Pospuesta → ' if vs.get('reprogramaciones') else 'Agendada ')+(fecha(vs['fecha']))
+    o=web({'Visita realizada'})
+    if vi==P and o: vi='Concretada'+(' '+fecha(o.get('fecha')) if o.get('fecha') else '')
+    o2=web({'Visita agendada'})
+    if vi==P and o2: vi='Agendada '+(fecha(o2.get('fecha')) if o2.get('fecha') else '')
+    # Oferta
+    of=P; L=[x for x in (v.get('ofertas') or []) if isinstance(x,dict)]
+    rp=(v.get('respuesta_propietario') or '').lower(); ng=v.get('negociacion') or ''
+    if L or v.get('monto_oferta'):
+        mt=_m(v.get('monto_oferta') or L[-1].get('monto'),v.get('moneda_oferta') or (L[-1].get('moneda') if L else None))
+        est='aceptada' if rp.startswith('acept') or 'aceptada' in ng else 'rechazada' if rp.startswith('no') and 'abierta' not in ng else 'en negociación' if ng or rp else 'realizada'
+        of=f"{mt} · {est}"
+    else:
+        o=web({'Oferta aceptada'})
+        if o: of='Aceptada'+(' '+fecha(o.get('fecha')) if o.get('fecha') else '')
+        elif web({'Oferta realizada'}): o=web({'Oferta realizada'}); of='Realizada'+(' '+fecha(o.get('fecha')) if o.get('fecha') else '')
+    # Reserva
+    rs=P
+    o=web({'Reserva firmada'}); o2=web({'Reserva agendada'})
+    if o: rs='Firmada'+(' '+fecha(o.get('fecha')) if o.get('fecha') else '')
+    elif o2: rs='Agendada'+(' '+fecha(o2.get('fecha')) if o2.get('fecha') else '')
+    if v.get('fecha_cierre') or v.get('precio_final'):
+        rs=' · '.join(x for x in [rs if rs!=P else 'Cierre',fecha(v.get('fecha_cierre')) if v.get('fecha_cierre') else '',_m(v['precio_final'],v.get('moneda_precio')) if v.get('precio_final') else ''] if x)
+    return [['Asignación',asg],['Inmueble / búsqueda',prop or P],['Contacto',c],['Visita',vi],['Oferta',of],['Reserva',rs]]
 def datos(resp,admin=''):
-    resp=mig(resp)
+    resp=mig(resp); AS=_asig_local()
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{}); ex=set(cf.get('excluir_contactos',[]))
     exa={norm(a) for a in cf.get('excluir_asesores',[])}-PAUSA
     out=[]
@@ -16,9 +86,10 @@ def datos(resp,admin=''):
             ck=color_key(st),cu=(cierre_url({**v,'contact_id':k}) if st.get('situacion')=='Reserva firmada' else ''),doc=(f"/admin/{admin}/doc/{rr['doc']}" if rr.get('doc') and admin else ''),
             src=st.get('src'),tg=(v.get('estado') or '').capitalize(),at=rr.get('at',''),
             cer=bool(v.get('cerrado')),ok=st.get('estado')!='Sin estatus' or bool(v.get('cerrado')),
-            h=[dict(e=' · '.join(x for x in [o.get('estado'),o.get('situacion'),fecha(o.get('fecha')) if o.get('fecha') else '',o.get('motivo')] if x),s=o.get('comentario',''),at=o.get('at','')) for o in rr.get('historial',[])]))
+            rc=recorrido(v,rr,v.get('asig') or AS.get(k)),h=[dict(e=' · '.join(x for x in [o.get('estado'),o.get('situacion'),fecha(o.get('fecha')) if o.get('fecha') else '',o.get('motivo')] if x),s=o.get('comentario',''),at=o.get('at','')) for o in rr.get('historial',[])]))
     return out
 CSS="""main{max-width:1240px!important}
+.rc{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:12px;background:#fafafa;border-radius:8px;padding:6px 8px;margin:6px 0}.rc>div{display:contents}.rc span{color:#666}.rc b{font-weight:600}.rc b.pd{color:#aaa;font-weight:400;font-style:italic}
 .wrap{max-width:1200px;margin:0 auto;padding:12px}.kp{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
 td.vx{background:#fee2e2;color:#b91c1c;font-weight:bold}.vb{display:inline-block;background:#dc2626;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:bold;margin-left:4px}.k.alr{background:#dc2626;color:#fff;border-top-color:#7f1d1d}.k.alr span{color:#fee2e2}
 .k{background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 5px rgba(0,0,0,.07);cursor:pointer;border-top:4px solid #e5e7eb}
@@ -56,6 +127,7 @@ $('#cl').innerHTML=L.map(d=>`<div class="c${bc(d.ck)}"><b>${esc(d.n)}</b> <span 
 ${d.hc!=null?`<div class=m style="color:${d.vc?'#b91c1c':'#666'};font-weight:${d.vc?'bold':'normal'}">Contactado hace ${hx(d.hc)}${d.dsrc=='asignacion'?' (desde asignación)':d.dsrc=='primer_contacto'?' (desde primer contacto)':''}</div>`:''}
 <div class=m>${esc(d.a)}${d.p?' <span class=pz>pausada de asignaciones</span>':''}${d.tl?' · '+esc(d.tl):''}${d.f?' · Asignado '+d.f:''}</div>
 <div style="margin:6px 0">🏠 ${esc(d.inm)||(d.cod?'Inmueble':'Sin inmueble específico')} ${d.cod?'<span class=cod>'+esc(d.cod)+'</span>':''}</div>
+<div class=rc>${d.rc.map(([k,x])=>`<div><span>${k}</span><b class="${x=='pendiente'?'pd':''}">${esc(x)}</b></div>`).join('')}</div>
 ${d.mo?'<div><b>Motivo:</b> '+esc(d.mo)+'</div>':''}${d.co?'<div>📝 '+esc(d.co)+'</div>':''}${d.doc?'<div>📎 <a href="'+esc(d.doc)+'" target=_blank>Documento de reserva</a></div>':''}${d.cu?'<div><a class=cierre href="'+esc(d.cu)+'" target=_blank'+(d.cu=='#'?' onclick="alert(\'Próximamente — Sistema Contable de For Rent\');return false"':'')+'>Reportar Cierre</a></div>':''}
 ${d.src=='tg'?'<div class=m>Seguimiento Telegram: '+esc(d.tg)+'</div>':'<div class=m>Actualizado '+d.at.slice(0,16).replace('T',' ')+' · Telegram: '+esc(d.tg)+'</div>'}
 ${d.h.length?'<details><summary>Historial ('+d.h.length+')</summary>'+d.h.map(h=>`<div>${h.at.slice(0,16).replace('T',' ')} · ${esc(h.e)} ${esc(h.s)}</div>`).join('')+'</details>':''}</div>`).join('')}
@@ -68,4 +140,4 @@ def render(page,resp,admin=''):
     body=f"""<style>{CSS}</style><div class=wrap><div id=kp class=kp></div><div class=f><select id=fe></select><select id=fa></select><label style="display:flex;align-items:center;gap:6px;background:#fee2e2;color:#991b1b;border-radius:8px;padding:6px 10px;font-weight:bold;flex:0 1 auto"><input type=checkbox id=fvv style="width:auto;margin:0"> Solo vencidos +72h</label><input id=q placeholder="Buscar cliente por nombre…"></div>
 <div class=m>Regla: un cliente en «Nuevo · Contactado» tiene 72 horas para pasar a En proceso (visita agendada/realizada), En espera, Negociación o Perdido. El tiempo se cuenta desde que entró a Contactado (página del asesor, o cambio de estado en Telegram).</div><h2>Ranking por asesor</h2><div class=m style="margin:-2px 0 6px">% seguimiento = clientes con algún estado (página o Telegram), sobre todos sus clientes del registro (incluye cerrados).</div><div class=tw><table id=tb></table></div><h2>Clientes por estatus por asesor</h2><div class=m style="margin:-2px 0 6px">Clientes abiertos. Toca un número para ver esos clientes.</div><div class=tw><table id=mx></table></div><h2 id=ct></h2><div id=cl class=cl></div></div>
 <script>{JS.replace('__EST__',json.dumps(ESTATUS,ensure_ascii=False)).replace('__SITS__',json.dumps(SITS,ensure_ascii=False)).replace('__DATA__',dj)}</script>"""
-    return page('Panel',f"Panel de control · {len(d)} clientes abiertos",body)
+    return page('Panel',f"Panel de control · {len(d)} clientes · recorrido de punta a punta: asignación → contacto → visita → oferta → reserva",body)
