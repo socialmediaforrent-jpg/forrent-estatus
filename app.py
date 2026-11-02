@@ -23,6 +23,9 @@ ESTADOS={
  "Recuperado":{},
  "Perdido":{"motivo":"Motivo de pérdida (obligatorio)"},
 }
+# Situaciones generales (José, 2-nov): disponibles en cualquier Estado
+GEN_SITS=[("Buscando",0,0),("Esperando",0,0)]
+for _d in ESTADOS.values(): _d["sits"]=list(_d.get("sits",[]))+GEN_SITS
 ESTATUS=list(ESTADOS)
 SITS={e:[s[0] for s in d.get('sits',[])] for e,d in ESTADOS.items()}
 COLOR_HEX={"Sin estatus":"#cccccc","No contactado":"#b45454","Contactado":"#d6b656","Visita agendada":"#ffd400","Visita realizada":"#5f9e6e",
@@ -306,12 +309,12 @@ def card(v,resp,tok='',lider=False):
 <div class=meta>{('Asignado: '+fa) if fa else ''}{tel}{(' · '+e(v.get('tipo_lead'))) if v.get('tipo_lead') else ''}</div>
 {vb}<div class=inm>🏠 {e(t) or ('Inmueble' if cod else 'Sin inmueble específico')}{f'<span class=cod>{e(cod)}</span>' if cod else ''}</div>{act}
 <form onsubmit="return g(this,'{cid}')" data-sit="{e(cur_s)}"><label class=meta>Estado</label><select name=estado onchange=fv(this) required><option value="">— Estado —</option>{opts}</select>
-<div class=x-sit style=display:none><label class=meta>Situación</label><select name=situacion onchange=fs(this)></select></div>
+<div class=x-sit><label class=meta>Situación</label><select name=situacion onchange=fs(this)></select></div>
 <div class=x-fecha style=display:none><label class=meta>Fecha <span class=x-fl></span></label><input type=date name=fecha value="{e((r.get('fecha') or a.get('fecha') or '')[:10])}"></div>
 <div class=x-mot style=display:none><input name=motivo maxlength=500 value="{e(r.get('motivo') or '')}"></div>
 <div class=x-doc style=display:none><label class=meta>Documento de reserva (PDF o imagen, máx. 10 MB)</label><input type=file name=doc accept=".pdf,image/*">{docl}
 {cierre_btn(v) if lider else "<div class=meta>Tu líder reportará el cierre en el Sistema Contable.</div>"}</div>
-<label class=meta>Comentario</label><textarea name=comentario maxlength=2000 placeholder="Comentario (opcional)…">{e(r.get('comentario') or '')}</textarea><button>Guardar</button><div class=msg>{'Último guardado: '+e(r.get('at','')[:16].replace('T',' ')) if r else ''}</div></form></div>"""
+<label class=meta>Comentario/Detalles</label><textarea name=comentario maxlength=2000 placeholder="Comentario/Detalles…">{e(r.get('comentario') or '')}</textarea><button>Guardar</button><div class=msg>{'Último guardado: '+e(r.get('at','')[:16].replace('T',' ')) if r else ''}</div></form></div>"""
 def safe_upl(rel):
     rel=(rel or '').replace('\\','/')
     if not re.fullmatch(r'[A-Za-z0-9_-]+/[A-Za-z0-9._-]+',rel) or '..' in rel: return None
