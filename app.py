@@ -148,6 +148,12 @@ def clientes():
         out.setdefault(v.get('asesor') or 'Sin asesor',[]).append(dict(v,contact_id=k))
     for l in out.values(): l.sort(key=lambda x:x.get('asignado_at') or '')
     return out
+def actualizados(a,pend_ids,resp):
+    """Clientes del asesor con estatus guardado en la página (última entrada = vigente), fuera de los pendientes."""
+    r=load(REG,{}).get('clientes',{}); cf=load(CFG,{}); ex=set(cf.get('excluir_contactos',[]))
+    out=[dict(v,contact_id=k) for k,v in r.items() if k not in ex and not v.get('cerrado') and (v.get('asesor') or 'Sin asesor')==a
+         and k not in pend_ids and (resp.get(k) or {}).get('estado') in ESTADOS]
+    out.sort(key=lambda x:(resp.get(x['contact_id']) or {}).get('at') or '',reverse=True); return out
 def tokens(ases):
     t=load(TOK,{}); ch=False
     if REMOTE:  # nunca generar tokens en Render; solo los que manda la caja
@@ -233,7 +239,7 @@ def merge_resp(base,new):
             r=dict(r); r.pop('historial',None)
             if _ts(r): allr[_ts(r)]=r
         L=[allr[t] for t in sorted(allr)]
-        cur=dict(L[-1]); cur['historial']=L[:-1][-10:]
+        cur=dict(L[-1]); cur['historial']=L[:-1]
         if not cur['historial']: cur.pop('historial')
         out[k]=cur
     return out
@@ -265,7 +271,7 @@ async function g(f,id){const d=new FormData(f);const b={id:id};['estado','situac
 const m=f.querySelector('.msg');m.style.color='';const fl=f.querySelector('input[name=doc]');
 if(b.situacion=='Reserva firmada'&&fl.files.length){const x=fl.files[0];if(x.size>10e6){m.style.color='#c00';m.textContent='El documento pasa de 10 MB';return false}m.textContent='Subiendo documento…';b.doc={name:x.name,data:await b64(x)}}
 m.textContent='Guardando…';const r=await fetch(location.pathname+'/guardar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
-const j=await r.json().catch(()=>({}));if(r.ok){m.textContent='✔ Guardado';f.closest('.card').classList.add('ok');fl.value=''}else{m.style.color='#c00';m.textContent=j.error||'Error al guardar'}return false}
+const j=await r.json().catch(()=>({}));if(r.ok){m.textContent='✔ Guardado';f.closest('.card').classList.add('ok');fl.value='';setTimeout(()=>location.reload(),900)}else{m.style.color='#c00';m.textContent=j.error||'Error al guardar'}return false}
 document.querySelectorAll('select[name=estado]').forEach(s=>fv(s,1));"""
 
 def page(title,sub,body):
@@ -296,7 +302,7 @@ def conv_full(r):
     if r.get('estado') in ESTADOS and all(h.get('estado') in ESTADOS for h in r.get('historial',[]) or []): return r
     return mig({'x':r}).get('x',{})
 def doc_name(p): return os.path.basename(p or '').split('_',1)[-1]
-def card(v,resp,tok='',lider=False):
+def card(v,resp,tok='',lider=False,compact=False):
     e=html.escape; t,cod=inmueble(v); r=resp.get(v['contact_id'],{}); a=actual(v,r)
     cur_e=r.get('estado') or ''; cur_s=r.get('situacion') or ''
     if not cur_e and a.get('estado')!='Sin estatus': cur_e=a['estado']; cur_s=a.get('situacion') or ''
@@ -311,10 +317,19 @@ def card(v,resp,tok='',lider=False):
     act=''
     if a.get('estado')!='Sin estatus':
         act=f"<div class=meta>Actual: <span class='pill e{ECLS[color_key(a)]}'>{e(a['estado'])}{(' · '+e(a['situacion'])) if a.get('situacion') else ''}{(' ('+e(fecha(a['fecha']))+')') if a.get('fecha') else ''}</span>{' (Telegram)' if a.get('src')=='tg' else ''}</div>"
+    hid=''; summ=''
+    if compact:
+        hid=' style=display:none'; nh=len(r.get('historial') or [])
+        summ=(f"<div class=meta>Situación: <span class='pill e{ECLS[color_key(r)]}'>{e(r.get('estado',''))}{(' · '+e(r['situacion'])) if r.get('situacion') else ''}</span></div>"
+              +(f"<div class=meta>Detalle: {e(r.get('motivo_cat') or r.get('motivo'))}</div>" if (r.get('motivo_cat') or r.get('motivo')) else '')
+              +(f"<div class=meta>Comentario: {e(r.get('comentario'))}</div>" if r.get('comentario') else '')
+              +f"<div class=meta>Actualizado: {e(r.get('at','')[:16].replace('T',' '))}{f' · {nh} actualización(es) anterior(es)' if nh else ''}</div>"
+              +"<button type=button style='background:#111;margin-top:6px' onclick=\"const f=this.nextElementSibling;f.style.display='block';this.style.display='none'\">Actualizar</button>")
+        act=''
     return f"""<div class="card{' ok' if r else ''}"><div class=n>{e(v.get('nombre') or 'Cliente')}</div>
 <div class=meta>{('Asignado: '+fa) if fa else ''}{tel}{(' · '+e(v.get('tipo_lead'))) if v.get('tipo_lead') else ''}</div>
-{vb}<div class=inm>🏠 {e(t) or ('Inmueble' if cod else 'Sin inmueble específico')}{f'<span class=cod>{e(cod)}</span>' if cod else ''}</div>{act}
-<form onsubmit="return g(this,'{cid}')" data-sit="{e(cur_s)}"><label class=meta>Estado</label><select name=estado onchange=fv(this) required><option value="">— Estado —</option>{opts}</select>
+{vb}<div class=inm>🏠 {e(t) or ('Inmueble' if cod else 'Sin inmueble específico')}{f'<span class=cod>{e(cod)}</span>' if cod else ''}</div>{act}{summ}
+<form{hid} onsubmit="return g(this,'{cid}')" data-sit="{e(cur_s)}"><label class=meta>Estado</label><select name=estado onchange=fv(this) required><option value="">— Estado —</option>{opts}</select>
 <div class=x-sit><label class=meta>Situación</label><select name=situacion onchange=fs(this)></select></div>
 <div class=x-fecha style=display:none><label class=meta>Fecha <span class=x-fl></span></label><input type=date name=fecha value="{e((r.get('fecha') or a.get('fecha') or '')[:10])}"></div>
 <div class=x-mot style=display:none><label class=meta>Detalle</label><select name=motivo><option value="">— Detalle —</option>{''.join(f'<option{" selected" if (r.get("motivo_cat") or r.get("motivo"))==m else ""}>{e(m)}</option>' for m in MOTIVOS)}</select>{('<div class=meta>Antes: '+e(r.get('motivo'))+'</div>') if r.get('motivo') and r.get('motivo') not in MOTIVOS else ''}</div>
@@ -413,11 +428,14 @@ class H(BaseHTTPRequestHandler):
             if not fp or not os.path.isfile(fp): return self.send(404,'{}','application/json')
             return self.send(200,json.dumps({'p':rel,'data':base64.b64encode(open(fp,'rb').read()).decode()}),'application/json')
         p,c,t,inv=self.ctx(); resp=mig(load(RESP,{}))
-        if len(p)==6 and p[3]=='doc' and ((p[1]=='a' and p[2] in inv and p[4] in {v['contact_id'] for v in c.get(inv[p[2]],[])}) or (p[1]=='admin' and p[2]==t['admin'])):
+        if len(p)==6 and p[3]=='doc' and ((p[1]=='a' and p[2] in inv and p[4] in {v['contact_id'] for v in c.get(inv[p[2]],[])+actualizados(inv[p[2]],set(),resp)}) or (p[1]=='admin' and p[2]==t['admin'])):
             return self.file(safe_upl(p[4]+'/'+p[5]))
         if len(p)==3 and p[1]=='a' and p[2] in inv:
-            a=inv[p[2]]; l=c.get(a,[]); eq=equipos(); ld=a in eq
-            body=''.join(card(v,resp,p[2],ld) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>'
+            a=inv[p[2]]; eq=equipos(); ld=a in eq
+            l=[v for v in c.get(a,[]) if resp.get(v['contact_id'],{}).get('estado') not in ESTADOS or vencido(v,resp.get(v['contact_id']))]
+            ya=actualizados(a,{v['contact_id'] for v in l},resp)
+            body=(''.join(card(v,resp,p[2],ld) for v in l) or '<p>¡No tienes clientes pendientes! 🎉</p>')
+            if ya: body+=f"<h2>Ya actualizados ({len(ya)})</h2><p class=meta>Si la situación de un cliente cambió, toca «Actualizar». Se guarda como una nueva entrada y se conserva el historial.</p>"+''.join(card(v,resp,p[2],ld,True) for v in ya)
             if ld:
                 pend=[v for m in eq[a] for v in c.get(m,[]) if actual(v,resp.get(v['contact_id'],{})).get('situacion')=='Reserva firmada']
                 if pend: body=f"<h2 style='color:#E76108'>Cierres por reportar de tu equipo ({len(pend)})</h2>"+''.join(f"<div class='card ok'><div class=n>{html.escape(v.get('nombre') or 'Cliente')}</div><div class=meta>Asesor: {html.escape(v.get('asesor') or '')} · Negociación · Reserva firmada</div><div class=inm>🏠 {html.escape(inmueble(v)[0] or '')}</div>{cierre_btn(v)}</div>" for v in pend)+'<h2>Tus clientes</h2>'+body
@@ -442,7 +460,8 @@ class H(BaseHTTPRequestHandler):
         a=inv[p[2]]
         try: d=json.loads(self.rfile.read(min(int(self.headers.get('Content-Length',0)),15_000_000)))
         except Exception: return self.send(400,'{}','application/json')
-        if d.get('id') not in {v['contact_id'] for v in c.get(a,[])}: return self.send(400,'{"error":"Cliente no válido"}','application/json')
+        ok_ids={v['contact_id'] for v in c.get(a,[])}|{v['contact_id'] for v in actualizados(a,set(),mig(load(RESP,{})))}
+        if d.get('id') not in ok_ids: return self.send(400,'{"error":"Cliente no válido"}','application/json')
         err=validar(d)
         if err: return self.send(400,json.dumps({'error':err},ensure_ascii=False),'application/json')
         es=d['estado']; now=datetime.datetime.now().astimezone().isoformat(timespec='seconds')
@@ -466,10 +485,10 @@ class H(BaseHTTPRequestHandler):
                     rel=d['id']+'/'+now[:19].replace(':','').replace('-','')+'_'+nm; save_upl(rel,raw); rec['doc']=rel
                 elif old.get('doc'): rec['doc']=old['doc']
             if old:
-                h=old.pop('historial',[]) or []; rec['historial']=(h+[old])[-10:]
+                h=old.pop('historial',[]) or []; rec['historial']=h+[old]
             r[d['id']]=rec; _wj(RESP,r)
             if rec.get('situacion')=='Reserva firmada' and old.get('situacion')!='Reserva firmada':
-                ld=lider_de(a); v=next(x for x in c[a] if x['contact_id']==d['id'])
+                ld=lider_de(a); v=next((x for x in c.get(a,[])+actualizados(a,set(),{d['id']:rec}) if x['contact_id']==d['id']),{'contact_id':d['id']})
                 ob=load(OUTBOX,[]); ob.append({'cliente_id':d['id'],'cliente':v.get('nombre') or '','asesor':a,'lider':ld or '(sin líder asignado)','url':cierre_url(v),'at':now,'enviado':False}); _wj(OUTBOX,ob)
         self.send(200,'{"ok":true}','application/json')
     def log_message(self,*a): pass
