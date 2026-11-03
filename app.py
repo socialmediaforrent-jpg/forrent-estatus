@@ -23,6 +23,9 @@ ESTADOS={
  "Recuperado":{},
  "Perdido":{"motivo":"Motivo de pérdida (obligatorio)"},
 }
+# Detalle = lista fija de motivos (José, 2-nov); Comentario libre, obligatorio si 'Otro'
+MOTIVOS=["No contesta","Presupuesto fuera de mercado","Zona","Característica del inmueble","Inmueble no disponible","Captador no responde",
+ "Propietario rechazó condiciones","Uso no aplica","Es asesor/colega","Ya resolvió","Cliente no acudió / desistió","Otro"]
 # Situaciones generales (José, 2-nov): disponibles en cualquier Estado
 GEN_SITS=[("Buscando",0,0),("Esperando",0,0)]
 for _d in ESTADOS.values(): _d["sits"]=list(_d.get("sits",[]))+GEN_SITS
@@ -76,7 +79,10 @@ def validar(d):
         sd=sit_def(e,s)
         if not sd: return 'Elige la situación'
         if sd[2] and not re.match(r'^\d{4}-\d{2}-\d{2}',f): return f'Indica la fecha ({s})'
-    if cfg.get('motivo') and not (d.get('motivo') or '').strip(): return cfg['motivo']
+    if cfg.get('motivo'):
+        m=(d.get('motivo') or '').strip()
+        if m not in MOTIVOS: return 'Elige el detalle (motivo) de la lista'
+        if m=='Otro' and not (d.get('comentario') or '').strip(): return 'Si eliges «Otro», escribe el Comentario'
     return None
 # Migración: estados de Telegram/registro y etiquetas viejas de la página
 TGMAP={'CONTACTADO':('Nuevo','Contactado',''),'INTERESADO':('Nuevo','Contactado',''),'NO RESPONDE':('Nuevo','No contactado','No responde'),
@@ -94,7 +100,7 @@ OLDMAP={'No contactado':('Nuevo','No contactado',''),'No responde':('Nuevo','No 
 def conv(r):
     """Registro de página (nuevo o viejo) -> dict nuevo modelo (sin historial)."""
     if not r: return {}
-    if r.get('estado') in ESTADOS: return {k:r.get(k) for k in ('estado','situacion','fecha','motivo','comentario','doc','at','asesor') if r.get(k)}
+    if r.get('estado') in ESTADOS: return {k:r.get(k) for k in ('estado','situacion','fecha','motivo','motivo_cat','comentario','doc','at','asesor') if r.get(k)}
     o=r.get('estatus')
     if o not in OLDMAP: return {}
     e,s,x=OLDMAP[o]; out={'estado':e,'at':r.get('at',''),'asesor':r.get('asesor','')}
@@ -249,7 +255,7 @@ JS="""const SX=window.ESTCFG||{};
 function fv(s,keep){const f=s.form,v=s.value,c=SX[v]||{},sits=c.sits||[];const sh=(q,on)=>{const x=f.querySelector(q);x.style.display=on?'block':'none';return x};
 const ss=f.querySelector('select[name=situacion]');const prev=keep?f.dataset.sit:ss.value;
 ss.innerHTML='<option value="">— Situación —</option>'+sits.map(x=>`<option${x[0]==prev?' selected':''}>${x[0]}</option>`).join('');ss.required=sits.length>0;
-sh('.x-sit',true);ss.disabled=!v;if(!v)ss.innerHTML='<option value="">— Elige primero el Estado —</option>';const m=sh('.x-mot',!!c.motivo).querySelector('input');m.required=!!c.motivo;m.placeholder=c.motivo||'';
+sh('.x-sit',true);ss.disabled=!v;if(!v)ss.innerHTML='<option value="">— Elige primero el Estado —</option>';const m=sh('.x-mot',!!c.motivo).querySelector('select');m.required=!!c.motivo;m.options[0].text='— '+(c.motivo||'Detalle')+' —';
 s.className=(window.EC&&EC[v]!=null)?'e'+EC[v]:'';fs(ss)}
 function fs(ss){const f=ss.form,e=f.querySelector('select[name=estado]').value,sits=(SX[e]||{}).sits||[],d=sits.find(x=>x[0]==ss.value);
 const fx=f.querySelector('.x-fecha');fx.style.display=d&&d[1]?'block':'none';const fi=fx.querySelector('input');fi.required=!!(d&&d[2]);fx.querySelector('.x-fl').textContent=d?'('+d[0]+(d[2]?'':', opcional')+')':'';
@@ -311,7 +317,7 @@ def card(v,resp,tok='',lider=False):
 <form onsubmit="return g(this,'{cid}')" data-sit="{e(cur_s)}"><label class=meta>Estado</label><select name=estado onchange=fv(this) required><option value="">— Estado —</option>{opts}</select>
 <div class=x-sit><label class=meta>Situación</label><select name=situacion onchange=fs(this)></select></div>
 <div class=x-fecha style=display:none><label class=meta>Fecha <span class=x-fl></span></label><input type=date name=fecha value="{e((r.get('fecha') or a.get('fecha') or '')[:10])}"></div>
-<div class=x-mot style=display:none><input name=motivo maxlength=500 value="{e(r.get('motivo') or '')}"></div>
+<div class=x-mot style=display:none><label class=meta>Detalle</label><select name=motivo><option value="">— Detalle —</option>{''.join(f'<option{" selected" if (r.get("motivo_cat") or r.get("motivo"))==m else ""}>{e(m)}</option>' for m in MOTIVOS)}</select>{('<div class=meta>Antes: '+e(r.get('motivo'))+'</div>') if r.get('motivo') and r.get('motivo') not in MOTIVOS else ''}</div>
 <div class=x-doc style=display:none><label class=meta>Documento de reserva (PDF o imagen, máx. 10 MB)</label><input type=file name=doc accept=".pdf,image/*">{docl}
 {cierre_btn(v) if lider else "<div class=meta>Tu líder reportará el cierre en el Sistema Contable.</div>"}</div>
 <label class=meta>Comentario/Detalles</label><textarea name=comentario maxlength=2000 placeholder="Comentario/Detalles…">{e(r.get('comentario') or '')}</textarea><button>Guardar</button><div class=msg>{'Último guardado: '+e(r.get('at','')[:16].replace('T',' ')) if r else ''}</div></form></div>"""
@@ -444,7 +450,7 @@ class H(BaseHTTPRequestHandler):
         if SITS.get(es): rec['situacion']=d['situacion'].strip()
         sd=sit_def(es,rec.get('situacion'))
         if sd and sd[1] and re.match(r'^\d{4}-\d{2}-\d{2}$',(d.get('fecha') or '')[:10]): rec['fecha']=d['fecha'][:10]
-        if ESTADOS[es].get('motivo'): rec['motivo']=d['motivo'].strip()[:500]
+        if ESTADOS[es].get('motivo'): rec['motivo']=d['motivo'].strip()[:500]; rec['motivo_cat']=rec['motivo']
         if (d.get('comentario') or '').strip(): rec['comentario']=d['comentario'].strip()[:2000]
         with LOCK:
             r=load(RESP,{}); old=conv_full(r.get(d['id']))
