@@ -135,6 +135,7 @@ def actual(v,r):
     return out
 def norm(s): return ''.join(c for c in unicodedata.normalize('NFD',s or '').lower() if unicodedata.category(c)!='Mn').strip()
 PAUSA={'erika nunez de ornelas','luz jimenez'}
+from corte_clientes import en_ejercicio, CORTE_NOTA
 def load(p,d):
     try: return json.load(open(p,encoding='utf-8'))
     except Exception: return d
@@ -144,6 +145,7 @@ def clientes():
     out={}; rs=load(RESP,{})
     for k,v in r.items():
         if k in ex or v.get('cerrado') or norm(v.get('asesor')) in exa: continue
+        if not en_ejercicio(asignado_at=v.get('asignado_at')): continue
         if v.get('estado')!='ASIGNADO' and not vencido(v,rs.get(k)): continue  # ASIGNADO o Nuevo/Contactado vencido  # + Contactado vencidos (+72h)
         out.setdefault(v.get('asesor') or 'Sin asesor',[]).append(dict(v,contact_id=k))
     for l in out.values(): l.sort(key=lambda x:x.get('asignado_at') or '')
@@ -152,7 +154,7 @@ def actualizados(a,pend_ids,resp):
     """Clientes del asesor con estatus guardado en la página (última entrada = vigente), fuera de los pendientes."""
     r=load(REG,{}).get('clientes',{}); cf=load(CFG,{}); ex=set(cf.get('excluir_contactos',[]))
     out=[dict(v,contact_id=k) for k,v in r.items() if k not in ex and not v.get('cerrado') and (v.get('asesor') or 'Sin asesor')==a
-         and k not in pend_ids and (resp.get(k) or {}).get('estado') in ESTADOS]
+         and k not in pend_ids and en_ejercicio(asignado_at=v.get('asignado_at')) and (resp.get(k) or {}).get('estado') in ESTADOS]
     out.sort(key=lambda x:(resp.get(x['contact_id']) or {}).get('at') or '',reverse=True); return out
 def tokens(ases):
     t=load(TOK,{}); ch=False

@@ -2,6 +2,7 @@
 !.gitignore
 !app.py
 !panel.py
+!corte_clientes.py
 !logo.jpg
 !requirements.txt
 !render.yaml

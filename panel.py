@@ -1,6 +1,7 @@
 """Sistema de Clientes — panel admin de José (solo lectura): recorrido de punta a punta."""
 import json, html
 from app import load, REG, CFG, PAUSA, norm, inmueble, fecha, ESTATUS, ECLS, SITS, mig, desde, horas, actual, color_key, cierre_url
+from corte_clientes import en_ejercicio, CORTE_NOTA
 
 import os, re, glob
 _RD=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'reports')
@@ -78,6 +79,7 @@ def datos(resp,admin=''):
     out=[]
     for k,v in r.items():
         if k in ex or norm(v.get('asesor')) in exa: continue
+        if not en_ejercicio(asignado_at=v.get('asignado_at')): continue
         t,cod=inmueble(v); rr=resp.get(k,{}); st=actual(v,rr)
         ds,dsrc=desde(v,rr); cont=st.get('estado')=='Nuevo' and st.get('situacion')=='Contactado'; hh=horas(ds) if cont else None
         out.append(dict(hc=round(hh,1) if hh is not None else None,vc=bool(hh and hh>72 and not v.get('cerrado')),dsrc=dsrc,id=k,n=v.get('nombre') or 'Cliente',a=v.get('asesor') or 'Sin asesor',p=norm(v.get('asesor')) in PAUSA,
@@ -102,13 +104,28 @@ th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}tr.as{cursor:poin
 .pz{background:#fde68a;color:#78350f;border-radius:6px;padding:1px 6px;font-size:11px;margin-left:4px}.est{display:inline-block;border-radius:6px;padding:2px 8px;font-size:12px;background:#E76108;color:#fff}
 .est.no{background:#e5e7eb;color:#333}.cl{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:10px}
 .c{background:#fff;border-radius:12px;padding:12px;border-left:5px solid #E76108;box-shadow:0 1px 5px rgba(0,0,0,.07);font-size:14px}.c.no{border-left-color:#ccc}
-.m{color:#666;font-size:12px}.cod{background:#111;color:#fff;border-radius:5px;padding:1px 6px;font-size:11px}details{font-size:12px;color:#555;margin-top:6px}h2{font-size:17px;margin:20px 0 6px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}.k.on{outline:3px solid #111}.sb{font-size:11px;color:#333;margin-top:3px;cursor:pointer}"""
+.m{color:#666;font-size:12px}.cod{background:#111;color:#fff;border-radius:5px;padding:1px 6px;font-size:11px}details{font-size:12px;color:#555;margin-top:6px}h2{font-size:17px;margin:20px 0 6px}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.15)}.k.on{outline:3px solid #111}.sb{font-size:11px;color:#333;margin-top:3px;cursor:pointer}
+.kp{grid-template-columns:repeat(auto-fill,minmax(158px,1fr))}
+.k.fase .ft{font-size:12px;font-weight:700;color:#333;margin:0 0 4px;line-height:1.3}
+.k.pdos{border-top-color:#444}
+details.ph{margin:16px 0 8px}details.ph>summary{cursor:pointer;font-size:17px;font-weight:700;margin:0 0 8px;list-style:none;display:flex;align-items:center;gap:8px}
+details.ph>summary::-webkit-details-marker{display:none}details.ph>summary::before{content:'';width:8px;height:8px;border-right:2px solid #333;border-bottom:2px solid #333;transform:rotate(45deg);margin-right:2px}
+details.ph[open]>summary::before{transform:rotate(225deg);margin-top:3px}
+"""
 JS=r"""
-const E=__EST__,SI=__SITS__,ec=e=>' e'+EC[e],bc=e=>' b'+EC[e],ALL=__DATA__,D=ALL.filter(d=>!d.cer);const hx=h=>h<48?Math.round(h)+'h':Math.floor(h/24)+' días';let fvv=false,fsi='',fe='',fa='',q='',sk='rank',sd=1;const $=s=>document.querySelector(s);
+const E=__EST__,SI=__SITS__,ec=e=>' e'+EC[e],bc=e=>' b'+EC[e],ALL=__DATA__,D=ALL.filter(d=>!d.cer);const hx=h=>h<48?Math.round(h)+'h':Math.floor(h/24)+' días';let fvv=false,fsi='',fe='',fa='',ff='',fk='',q='',sk='rank',sd=1;const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function kp(){const all=D.length,con=D.filter(d=>d.e!='Sin estatus').length;let h=`<div class="k big" onclick="se('')"><b>${Math.round(100*con/all)}%</b><span>con estatus (${con} de ${all})</span><div class=bar><i style="width:${100*con/all}%"></i></div></div>`;
+
+const FASES=[{id:'f1',t:'Fase 1 · Asignación y contacto',keys:['Sin estatus','Nuevo','Contactado','No contactado']},{id:'f2',t:'Fase 2 · Búsqueda / En proceso',keys:['Buscando','Esperando','En espera','En proceso']},{id:'f3',t:'Fase 3 · Visitas',keys:['Visita agendada','Visita realizada']},{id:'f4',t:'Fase 4 · Negociación',keys:['Oferta realizada','Oferta aceptada','Reserva agendada']},{id:'f5',t:'Fase 5 · Entrega',keys:['Reserva firmada']},{id:'perdidos',t:'Perdidos',keys:[]},{id:'otros',t:'Otros',keys:[]}];
+const KEY2F={};for(const f of FASES) for(const k of f.keys) KEY2F[k]=f.id;
+const nrm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+function esPerdido(d){if((d.e||'')==='Perdido')return true;for(const p of [d.e,d.si,d.tg]){const n=nrm(p);if(!n)continue;if(n==='perdido'||n==='descartado'||n==='no interesado'||n==='cerrado'||n==='cerrado sin negocio'||n==='cerrado sin exito'||n==='busca otra opcion'||n==='buscando otra propiedad'||n.startsWith('busca otra propiedad')||n.startsWith('buscando otra propiedad')||n.includes('desistio'))return true}return false}
+function faseId(d){if(esPerdido(d))return'perdidos';if(d.si&&KEY2F[d.si])return KEY2F[d.si];if(d.e&&KEY2F[d.e])return KEY2F[d.e];return'otros'}
+function brk(d){if(faseId(d)==='perdidos'){if(d.e==='Perdido'&&d.si)return'Perdido · '+d.si;if(d.e==='Perdido')return'Perdido';return d.si||d.tg||d.e||'Perdido'}if(d.si&&KEY2F[d.si]===faseId(d))return d.si;return d.e||'Sin estatus'}
+function sf(id,k){ff=ff==id&&fk===(k||'')&&!k?'':id;fk=k||'';fe='';fsi='';const sel=$('#ff');if(sel)sel.value=ff;go();if(k)$('#cl').scrollIntoView({behavior:'smooth'})}
+function kp(){const all=D.length,con=D.filter(d=>d.e!='Sin estatus').length;let h=`<div class="k big" onclick="sf('')"><b>${all?Math.round(100*con/all):0}%</b><span>con estatus (${con} de ${all})</span><div class=bar><i style="width:${all?100*con/all:0}%"></i></div></div>`;
 const nv=D.filter(d=>d.vc).length;h+=`<div class="k alr ${fvv?'on':''}" onclick="tv()"><b>${nv}</b><span>⚠ Contactado vencido (+72h)</span></div>`;
-for(const e of ['Sin estatus',...E]){const X=D.filter(d=>d.e==e),n=X.length;const br=(SI[e]||[]).map(si=>{const m=X.filter(d=>d.si==si).length;return `<div class=sb onclick="event.stopPropagation();ss('${e}','${si}')" style="${fsi==si?'font-weight:bold;text-decoration:underline':''}"><i class="dot${ec(si)}"></i>${si}: <b>${m}</b></div>`}).join('');h+=`<div class="k${bc(e)} ${fe==e&&!fsi?'on':''}" style="border-top-width:8px" onclick="se('${e}')"><b>${n}</b><span><i class="dot${ec(e)}"></i>${e}</span>${br}</div>`}$('#kp').innerHTML=h}
+for(const f of FASES){const X=D.filter(d=>faseId(d)==f.id);if(f.id==='otros'&&!X.length)continue;const cnt={};for(const d of X)cnt[brk(d)]=(cnt[brk(d)]||0)+1;const order=f.keys.length?f.keys.filter(k=>cnt[k]):Object.keys(cnt);for(const k of Object.keys(cnt)) if(!order.includes(k)) order.push(k);const br=order.map(k=>`<div class=sb onclick="event.stopPropagation();sf('${f.id}','${esc(k)}')" style="${ff==f.id&&fk==k?'font-weight:bold;text-decoration:underline':''}"><i class="dot${ec(k.includes(' · ')?k.split(' · ').pop():k)}"></i>${esc(k)}: <b>${cnt[k]}</b></div>`).join('');h+=`<div class="k fase ${f.id==='perdidos'?'pdos':''} ${ff==f.id&&!fk?'on':''}" style="border-top-width:8px" onclick="sf('${f.id}')"><div class=ft>${f.t}</div><b>${X.length}</b>${br}</div>`}$('#kp').innerHTML=h}
 function tv(){fvv=!fvv;$('#fvv').checked=fvv;go()}
 function ss(e,si){fsi=fsi==si?'':si;fe=fsi?e:fe;$('#fe').value=fe;go()}
 function se(e){fe=fe==e&&!fsi?'':e;fsi='';$('#fe').value=fe;go()}
@@ -123,23 +140,27 @@ for(const r of L){let t=0;h+=`<tr><td style="white-space:nowrap"><b>${esc(r.a)}<
 h+='<tr style="background:#f4f4f5"><td><b>Total</b></td>'+S.map(e=>`<td style="text-align:center;cursor:pointer" onclick="fx('','${e}')"><b>${T[e]||0}</b></td>`).join('')+`<td class=vx style="text-align:center;cursor:pointer" onclick="fx('','',1)">${TV}</td><td style="text-align:center"><b>${D.length}</b></td></tr>`;$('#mx').innerHTML=h}
 function fx(a,e,v){fa=a;fe=e;fsi='';fvv=!!v;$('#fvv').checked=fvv;$('#fa').value=fa;$('#fe').value=fe;go();$('#cl').scrollIntoView({behavior:'smooth'})}
 function sa(a){fa=fa==a?'':a;$('#fa').value=fa;go();$('#cl').scrollIntoView({behavior:'smooth'})}
-function cl(){const L=D.filter(d=>(!fvv||d.vc)&&(!fe||d.e==fe)&&(!fsi||d.si==fsi)&&(!fa||d.a==fa)&&(!q||d.n.toLowerCase().includes(q)));L.sort((x,y)=>x.a.localeCompare(y.a)||x.fs.localeCompare(y.fs));
-$('#ct').textContent=`${L.length} cliente(s)`+(fa?' · '+fa:'')+(fe?' · '+fe:'')+(fsi?' · '+fsi:'')+(fvv?' · Vencidos +72h':'');
-$('#cl').innerHTML=L.map(d=>`<div class="c${bc(d.ck)}"><b>${esc(d.n)}</b> <span class="est${ec(d.ck)}">${esc(d.e)}${d.si?' · '+esc(d.si):''}${d.fe?' ('+d.fe+')':''}${d.src=='tg'&&d.e!='Sin estatus'?' (Telegram)':''}</span>${d.vc?'<span class=vb>Vencido +72h</span>':''}
+function card(d){return `<div class="c${bc(d.ck)}"><b>${esc(d.n)}</b> <span class="est${ec(d.ck)}">${esc(d.e)}${d.si?' · '+esc(d.si):''}${d.fe?' ('+d.fe+')':''}${d.src=='tg'&&d.e!='Sin estatus'?' (Telegram)':''}</span>${d.vc?'<span class=vb>Vencido +72h</span>':''}
 ${d.hc!=null?`<div class=m style="color:${d.vc?'#b91c1c':'#666'};font-weight:${d.vc?'bold':'normal'}">Contactado hace ${hx(d.hc)}${d.dsrc=='asignacion'?' (desde asignación)':d.dsrc=='primer_contacto'?' (desde primer contacto)':''}</div>`:''}
 <div class=m>${esc(d.a)}${d.p?' <span class=pz>pausada de asignaciones</span>':''}${d.tl?' · '+esc(d.tl):''}${d.f?' · Asignado '+d.f:''}</div>
 <div style="margin:6px 0">🏠 ${esc(d.inm)||(d.cod?'Inmueble':'Sin inmueble específico')} ${d.cod?'<span class=cod>'+esc(d.cod)+'</span>':''}</div>
 <div class=rc>${d.rc.map(([k,x])=>`<div><span>${k}</span><b class="${x=='pendiente'?'pd':''}">${esc(x)}</b></div>`).join('')}</div>
 ${d.mo?'<div><b>Motivo:</b> '+esc(d.mo)+'</div>':''}${d.co?'<div>📝 '+esc(d.co)+'</div>':''}${d.doc?'<div>📎 <a href="'+esc(d.doc)+'" target=_blank>Documento de reserva</a></div>':''}${d.cu?'<div><a class=cierre href="'+esc(d.cu)+'" target=_blank'+(d.cu=='#'?' onclick="alert(\'Próximamente — Sistema Contable de For Rent\');return false"':'')+'>Reportar Cierre</a></div>':''}
 ${d.src=='tg'?'<div class=m>Seguimiento Telegram: '+esc(d.tg)+'</div>':'<div class=m>Actualizado '+d.at.slice(0,16).replace('T',' ')+' · Telegram: '+esc(d.tg)+'</div>'}
-${d.h.length?'<details><summary>Historial ('+d.h.length+')</summary>'+d.h.map(h=>`<div>${h.at.slice(0,16).replace('T',' ')} · ${esc(h.e)} ${esc(h.s)}</div>`).join('')+'</details>':''}</div>`).join('')}
+${d.h.length?'<details><summary>Historial ('+d.h.length+')</summary>'+d.h.map(h=>`<div>${h.at.slice(0,16).replace('T',' ')} · ${esc(h.e)} ${esc(h.s)}</div>`).join('')+'</details>':''}</div>`}
+function cl(){const L=D.filter(d=>(!fvv||d.vc)&&(!ff||faseId(d)==ff)&&(!fk||brk(d)==fk)&&(!fe||d.e==fe)&&(!fsi||d.si==fsi)&&(!fa||d.a==fa)&&(!q||d.n.toLowerCase().includes(q)));L.sort((x,y)=>x.a.localeCompare(y.a)||x.fs.localeCompare(y.fs));
+const fase=FASES.find(x=>x.id==ff);$('#ct').textContent=`${L.length} cliente(s)`+(fa?' · '+fa:'')+(fase?' · '+fase.t:'')+(fk?' · '+fk:'')+(fe?' · '+fe:'')+(fsi?' · '+fsi:'')+(fvv?' · Vencidos +72h':'');
+let html='';
+for(const f of FASES){const X=L.filter(d=>faseId(d)==f.id);if(!X.length)continue;html+=`<details class=ph open><summary>${f.t} <span class=m>(${X.length})</span></summary><div class=cl>${X.map(card).join('')}</div></details>`}
+$('#cl').innerHTML=html||'<div class=m>No hay clientes con ese filtro.</div>'}
 function go(){kp();tab();asesorCards();mx();cl()}
+$('#ff').innerHTML='<option value="">Todas las fases</option>'+FASES.filter(f=>f.id!=='otros'||D.some(d=>faseId(d)==='otros')).map(f=>`<option value="${f.id}">${f.t}</option>`).join('');
 $('#fe').innerHTML='<option value="">Todos los estados</option>'+['Sin estatus',...E].map(e=>`<option>${e}</option>`).join('');
 $('#fa').innerHTML='<option value="">Todos los asesores</option>'+[...new Set(D.map(d=>d.a))].sort().map(a=>`<option>${esc(a)}</option>`).join('');
-$('#fe').onchange=e=>{fe=e.target.value;go()};$('#fa').onchange=e=>{fa=e.target.value;go()};$('#fvv').onchange=e=>{fvv=e.target.checked;go()};$('#q').oninput=e=>{q=e.target.value.toLowerCase();cl()};go();"""
+$('#ff').onchange=e=>{ff=e.target.value;fk='';go()};$('#fe').onchange=e=>{fe=e.target.value;go()};$('#fa').onchange=e=>{fa=e.target.value;go()};$('#fvv').onchange=e=>{fvv=e.target.checked;go()};$('#q').oninput=e=>{q=e.target.value.toLowerCase();cl()};go();"""
 def render(page,resp,admin=''):
     d=datos(resp,admin); dj=json.dumps(d,ensure_ascii=False).replace('</','<\\/')
-    body=f"""<style>{CSS}</style><div class=wrap><div id=kp class=kp></div><div class=f><select id=fe></select><select id=fa></select><label style="display:flex;align-items:center;gap:6px;background:#fee2e2;color:#991b1b;border-radius:8px;padding:6px 10px;font-weight:bold;flex:0 1 auto"><input type=checkbox id=fvv style="width:auto;margin:0"> Solo vencidos +72h</label><input id=q placeholder="Buscar cliente por nombre…"></div>
-<div class=m>Regla: un cliente en «Nuevo · Contactado» tiene 72 horas para pasar a En proceso (visita agendada/realizada), En espera, Negociación o Perdido. El tiempo se cuenta desde que entró a Contactado (página del asesor, o cambio de estado en Telegram).</div><h2>Estatus por asesor</h2><div class=m>Clientes abiertos por asesor. Mismos estados del ranking; no incluye asesoras pausadas.</div><section id=asesor-estatus class=asesor-grid aria-label="Estatus por asesor"></section><h2>Ranking por asesor</h2><div class=m style="margin:-2px 0 6px">% seguimiento = clientes con algún estado (página o Telegram), sobre todos sus clientes del registro (incluye cerrados).</div><div class=tw><table id=tb></table></div><h2>Clientes por estatus por asesor</h2><div class=m style="margin:-2px 0 6px">Clientes abiertos. Toca un número para ver esos clientes.</div><div class=tw><table id=mx></table></div><h2 id=ct></h2><div id=cl class=cl></div></div>
+    body=f"""<style>{CSS}</style><div class=wrap><div class=m><b>Ejercicio desde el 31 oct 2026</b> (inicio del reel 19 alquileres). Los clientes asignados antes se conservan en el registro, pero no aparecen en este panel.</div><div id=kp class=kp></div><div class=f><select id=ff></select><select id=fe></select><select id=fa></select><label style="display:flex;align-items:center;gap:6px;background:#fee2e2;color:#991b1b;border-radius:8px;padding:6px 10px;font-weight:bold;flex:0 1 auto"><input type=checkbox id=fvv style="width:auto;margin:0"> Solo vencidos +72h</label><input id=q placeholder="Buscar cliente por nombre…"></div>
+<div class=m>Los clientes abiertos se agrupan por fase (la situación cuenta primero; si el estado es Perdido van a Perdidos, aunque la situación sea Buscando o Esperando). Regla: un cliente en «Nuevo · Contactado» tiene 72 horas para pasar a En proceso (visita agendada/realizada), En espera, Negociación o Perdido. El tiempo se cuenta desde que entró a Contactado (página del asesor, o cambio de estado en Telegram).</div><h2>Estatus por asesor</h2><div class=m>Clientes abiertos por asesor. Mismos estados del ranking; no incluye asesoras pausadas.</div><section id=asesor-estatus class=asesor-grid aria-label="Estatus por asesor"></section><h2>Ranking por asesor</h2><div class=m style="margin:-2px 0 6px">% seguimiento = clientes con algún estado (página o Telegram), sobre todos sus clientes del registro (incluye cerrados).</div><div class=tw><table id=tb></table></div><h2>Clientes por estatus por asesor</h2><div class=m style="margin:-2px 0 6px">Clientes abiertos. Toca un número para ver esos clientes.</div><div class=tw><table id=mx></table></div><h2 id=ct></h2><div id=cl></div></div>
 <script>{JS.replace('__EST__',json.dumps(ESTATUS,ensure_ascii=False)).replace('__SITS__',json.dumps(SITS,ensure_ascii=False)).replace('__DATA__',dj)}</script>"""
     return page('Panel',f"Panel de control · {len(d)} clientes · recorrido de punta a punta: asignación → contacto → visita → oferta → reserva",body)
