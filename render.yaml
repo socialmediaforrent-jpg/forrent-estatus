@@ -2,13 +2,19 @@ services:
   - type: web
     name: forrent-estatus
     runtime: python
-    plan: free
+    # Igual a Render: Starter con disco persistente (estatus-data, 1 GB en /var/data).
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: python3 app.py
     healthCheckPath: /healthz
+    disk:
+      name: estatus-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
+      # Los datos viven en el disco: sobreviven a reinicios y despliegues (antes /tmp se borraba).
       - key: DATA_DIR
-        value: /tmp/forrent_data
+        value: /var/data
       - key: SYNC_KEY
         sync: false
       - key: PYTHON_VERSION
