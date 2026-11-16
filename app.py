@@ -28,7 +28,8 @@ MOTIVOS=["No contesta","Presupuesto fuera de mercado","Zona","Característica de
  "Propietario rechazó condiciones","Uso no aplica","Es asesor/colega","Ya resolvió","Cliente no acudió / desistió","Otro"]
 # Situaciones generales (José, 2-nov): disponibles en cualquier Estado
 GEN_SITS=[("Buscando",0,0),("Esperando",0,0)]
-for _d in ESTADOS.values(): _d["sits"]=list(_d.get("sits",[]))+GEN_SITS
+# Perdido no lleva situación (José, 16-nov: Herlinda)
+for _k,_d in ESTADOS.items(): _d["sits"]=list(_d.get("sits",[]))+([] if _k=="Perdido" else GEN_SITS)
 ESTATUS=list(ESTADOS)
 SITS={e:[s[0] for s in d.get('sits',[])] for e,d in ESTADOS.items()}
 COLOR_HEX={"Sin estatus":"#cccccc","No contactado":"#b45454","Contactado":"#d6b656","Visita agendada":"#ffd400","Visita realizada":"#5f9e6e",
@@ -263,7 +264,7 @@ JS="""const SX=window.ESTCFG||{};
 function fv(s,keep){const f=s.form,v=s.value,c=SX[v]||{},sits=c.sits||[];const sh=(q,on)=>{const x=f.querySelector(q);x.style.display=on?'block':'none';return x};
 const ss=f.querySelector('select[name=situacion]');const prev=keep?f.dataset.sit:ss.value;
 ss.innerHTML='<option value="">— Situación —</option>'+sits.map(x=>`<option${x[0]==prev?' selected':''}>${x[0]}</option>`).join('');ss.required=sits.length>0;
-sh('.x-sit',true);ss.disabled=!v;if(!v)ss.innerHTML='<option value="">— Elige primero el Estado —</option>';const m=sh('.x-mot',!!c.motivo).querySelector('select');m.required=!!c.motivo;m.options[0].text='— '+(c.motivo||'Detalle')+' —';
+sh('.x-sit',!v||sits.length>0);ss.disabled=!v||!sits.length;if(!v)ss.innerHTML='<option value="">— Elige primero el Estado —</option>';const m=sh('.x-mot',!!c.motivo).querySelector('select');m.required=!!c.motivo;m.options[0].text='— '+(c.motivo||'Detalle')+' —';
 s.className=(window.EC&&EC[v]!=null)?'e'+EC[v]:'';fs(ss)}
 function fs(ss){const f=ss.form,e=f.querySelector('select[name=estado]').value,sits=(SX[e]||{}).sits||[],d=sits.find(x=>x[0]==ss.value);
 const fx=f.querySelector('.x-fecha');fx.style.display=d&&d[1]?'block':'none';const fi=fx.querySelector('input');fi.required=!!(d&&d[2]);fx.querySelector('.x-fl').textContent=d?'('+d[0]+(d[2]?'':', opcional')+')':'';
